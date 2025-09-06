@@ -1,0 +1,69 @@
+"Here’s the Math Engine Internals flowchart — showing how CODEX should organize functions inside the simulator:
+
+Inverse Kinematics (IK)
+
+Arbitrary anchors, quaternion math, servo angle limits
+
+Workspace Analysis
+
+Sweep XYZ + RxRyRz, compute coverage, detect singularities
+
+Torque & Dynamics
+
+Map payload → leg forces, compute servo torque & RPM, joint stress
+
+Optimization
+
+Genetic algorithms, Pareto fronts, multi-objective tradeoffs
+
+This provides CODEX with a modular blueprint: each box can be a self-contained module, but they all feed data into each other."
+
+
+
+
+
+
+"Here’s a flowchart diagram showing how CODEX should structure the new simulator:
+
+UI → Math Engine → Renderer → Export & Analysis
+
+UI Layer → Sliders, inputs, JSON import/export
+
+Math Engine → IK, workspace sweeps, torque/load modeling, optimization (GA/PSO/etc.)
+
+Renderer → Canvas/WebGL visualization of anchors, rods, horns, workspace
+
+Export & Analysis → JSON/CSV output, plots, optimization logs"
+
+
+
+
+"Here’s the Dataflow Lifecycle diagram for CODEX — showing how a simulation run should work:
+
+Input JSON Layout
+
+Anchors, horn/rod lengths, servo ranges, payload
+
+Inverse Kinematics (IK)
+
+Compute servo angles, check joint/servo limits
+
+Workspace Sweep
+
+Explore XYZ + RxRyRz grid, build reachability map
+
+Optimization Engine
+
+Genetic algorithms / PSO / Monte Carlo tune geometry for coverage & torque
+
+Export & Analysis
+
+Output CSV/JSON results, plots, reports
+
+This completes the full blueprint package:
+
+System flowchart
+
+Math Engine internals
+
+Dataflow lifecycle"

@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "StewartPlatformLayout",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Optional name/label for the layout"
+    },
+    "base_anchors": {
+      "type": "array",
+      "description": "Array of 6 base anchor points [x,y,z] in mm",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "number"
+        },
+        "minItems": 3,
+        "maxItems": 3
+      },
+      "minItems": 6,
+      "maxItems": 6
+    },
+    "platform_anchors": {
+      "type": "array",
+      "description": "Array of 6 platform anchor points [x,y,z] in mm",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "number"
+        },
+        "minItems": 3,
+        "maxItems": 3
+      },
+      "minItems": 6,
+      "maxItems": 6
+    },
+    "beta_angles": {
+      "type": "array",
+      "description": "Array of 6 servo axis orientation angles in radians",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 6,
+      "maxItems": 6
+    },
+    "horn_length": {
+      "type": "number",
+      "description": "Servo horn length in mm"
+    },
+    "rod_length": {
+      "type": "number",
+      "description": "Rod length in mm"
+    },
+    "servo_range": {
+      "type": "array",
+      "description": "Min and max servo angles in degrees [min, max]",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "payload": {
+      "type": "object",
+      "description": "Payload simulation parameters",
+      "properties": {
+        "mass_kg": {
+          "type": "number"
+        },
+        "stroke_mm": {
+          "type": "number"
+        },
+        "frequency_hz": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  "required": [
+    "base_anchors",
+    "platform_anchors",
+    "beta_angles",
+    "horn_length",
+    "rod_length"
+  ]
+}
