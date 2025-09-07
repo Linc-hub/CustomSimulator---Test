@@ -903,38 +903,30 @@ Stewart.prototype.initAyva = function (opts) {
     const baseX = opts.baseXOffset || 60;
     const ySpacing = opts.ySpacing || 40;
     const platX = opts.platformXOffset || 30;
-
-    this.B = [];
-    this.P = [];
-    this.beta = [];
+    const hornLength = opts.hornLength || 50;
+    const rodLength = opts.rodLength || 150;
+    const servoRange = opts.servoRange || [-Math.PI / 2, Math.PI / 2];
 
     const yOffsets = [-ySpacing, 0, ySpacing];
+    const baseAnchors = [];
+    const platformAnchors = [];
     for (let y of yOffsets) {
-        this.B.push([-baseX, y, 0]);
-        this.P.push([-platX, y, 0]);
-        this.beta.push(0);
-
-        this.B.push([ baseX, y, 0]);
-        this.P.push([ platX, y, 0]);
-        this.beta.push(0);
+        baseAnchors.push([-baseX, y, 0]);
+        platformAnchors.push([-platX, y, 0]);
+        baseAnchors.push([ baseX, y, 0]);
+        platformAnchors.push([ platX, y, 0]);
     }
 
-    this.hornLength = opts.hornLength || 50;
-    this.rodLength = opts.rodLength || 150;
+    const layout = {
+        base_anchors: baseAnchors,
+        platform_anchors: platformAnchors,
+        beta_angles: [0, 0, 0, 0, 0, 0],
+        horn_length: hornLength,
+        rod_length: rodLength,
+        servo_range: servoRange.map(r => r * 180 / Math.PI)
+    };
 
-    // Dummy outlines for rendering
-    this.baseOutline = [
-        [-baseX-20, -ySpacing-20, 0],
-        [ baseX+20, -ySpacing-20, 0],
-        [ baseX+20,  ySpacing+20, 0],
-        [-baseX-20,  ySpacing+20, 0]
-    ];
-    this.platformOutline = [
-        [-platX-20, -ySpacing-20, 0],
-        [ platX+20, -ySpacing-20, 0],
-        [ platX+20,  ySpacing+20, 0],
-        [-platX-20,  ySpacing+20, 0]
-    ];
+    this.initCustom(layout);
 };
 
         // ---------- Platform & Animator ----------
@@ -946,6 +938,7 @@ Stewart.prototype.initAyva = function (opts) {
         platform.initHexagonal(opts);
     }
             if (Array.isArray(opts.servoRange)) platform.servoRange = opts.servoRange.slice();
+            window.platform = platform;
 
             // Stewart.Animation for RAW‑exact motion
             animator = new Stewart.Animation(platform);
