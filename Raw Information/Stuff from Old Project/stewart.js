@@ -323,6 +323,8 @@ function StewartAnimation(platform) {
   this.platform = platform;
   this.orientation = Quaternion.ONE;
   this.translation = [0, 0, 0];
+  // Tracks which legs are outside the servo range or invalid
+  this.outOfRangeLegs = [];
 
   this.start('wobble');
 }
@@ -1167,6 +1169,9 @@ Stewart.prototype = {
 
     return function (p) {
 
+      // Update servo status
+      this.getServoAngles && this.getServoAngles();
+
       // Base Frame
       drawFrame(p);
 
@@ -1200,20 +1205,17 @@ Stewart.prototype = {
         p.pop();
       }
 
-      // Rods
-      // Pass 1: H -> q rods in red
+      // Rods with highlighting for out-of-range servos
       p.push();
-      p.stroke(255, 0, 0);
       p.strokeWeight(1);
       for (let i = 0; i < this.B.length; i++) {
+        const bad = this.outOfRangeLegs && this.outOfRangeLegs[i];
+        if (bad) {
+          p.stroke(255, 0, 0);
+        } else {
+          p.stroke(100); // neutral color
+        }
         p.line(this.H[i][0], this.H[i][1], this.H[i][2], this.q[i][0], this.q[i][1], this.q[i][2]);
-      }
-      p.pop();
-
-      // Pass 2: Base -> H rods in black
-      p.push();
-      p.stroke(0);
-      for (let i = 0; i < this.B.length; i++) {
         p.line(this.B[i][0], this.B[i][1], this.B[i][2], this.H[i][0], this.H[i][1], this.H[i][2]);
       }
       p.pop();
@@ -1231,6 +1233,21 @@ Stewart.prototype = {
             this.servoRange[0], this.servoRange[1], p.PIE);
           p.pop();
         }
+      }
+
+      // On-canvas warning for out-of-range servos
+      if (this.outOfRangeLegs && this.outOfRangeLegs.some(Boolean)) {
+        const badIdx = [];
+        for (let i = 0; i < this.outOfRangeLegs.length; i++) {
+          if (this.outOfRangeLegs[i]) badIdx.push(i + 1);
+        }
+        p.push();
+        p.resetMatrix();
+        p.translate(-p.width / 2, -p.height / 2);
+        p.fill(255, 0, 0);
+        p.noStroke();
+        p.text(`Out-of-range servos: ${badIdx.join(', ')}`, 10, 20);
+        p.pop();
       }
     };
 
@@ -1292,6 +1309,7 @@ Stewart.prototype = {
   getServoAngles: function () {
 
     const ret = [];
+    const out = [];
     for (let i = 0; i < this.B.length; i++) {
       const e = this.e[i];
       const f = this.f[i];
@@ -1301,6 +1319,7 @@ Stewart.prototype = {
       const ratio = g / denom;
       if (!isFinite(ratio) || Math.abs(ratio) > 1) {
         ret[i] = null;
+        out[i] = true;
         continue;
       }
 
@@ -1308,10 +1327,13 @@ Stewart.prototype = {
 
       if (isNaN(alpha) || alpha < this.servoRange[0] || alpha > this.servoRange[1]) {
         ret[i] = null;
+        out[i] = true;
       } else {
         ret[i] = alpha;
+        out[i] = false;
       }
     }
+    this.outOfRangeLegs = out;
     return ret;
   }
 
