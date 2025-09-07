@@ -827,6 +827,10 @@ Stewart.prototype = {
   l: [], // vector from B to P
   H: [], // servo horn end to mount the rod
 
+  e: [], // helper parameter e_k = 2 h l_kz
+  f: [], // helper parameter f_k = 2 h (cosβ l_kx + sinβ l_ky)
+  g: [], // helper parameter g_k = ||l_k||² - (d² - h²)
+
   T0: [], // Initial offset
 
   init: function (opts) {
@@ -844,6 +848,9 @@ Stewart.prototype = {
     this.q = [];
     this.l = [];
     this.H = [];
+    this.e = [];
+    this.f = [];
+    this.g = [];
     this.sinBeta = [];
     this.cosBeta = [];
 
@@ -857,6 +864,9 @@ Stewart.prototype = {
       this.q.push([0, 0, 0]);
       this.l.push([0, 0, 0]);
       this.H.push([0, 0, 0]);
+      this.e.push(0);
+      this.f.push(0);
+      this.g.push(0);
     }
 
     if (opts.absoluteHeight) {
@@ -889,6 +899,9 @@ Stewart.prototype = {
     this.q = [];
     this.l = [];
     this.H = [];
+    this.e = [];
+    this.f = [];
+    this.g = [];
     this.sinBeta = [];
     this.cosBeta = [];
 
@@ -900,6 +913,9 @@ Stewart.prototype = {
       this.q.push([0, 0, 0]);
       this.l.push([0, 0, 0]);
       this.H.push([0, 0, 0]);
+      this.e.push(0);
+      this.f.push(0);
+      this.g.push(0);
     }
 
     this.T0 = [0, 0, Math.sqrt(this.rodLength * this.rodLength + this.hornLength * this.hornLength
@@ -1257,6 +1273,10 @@ Stewart.prototype = {
       const ek = 2 * hornLength * li[2];
       const fk = 2 * hornLength * (this.cosBeta[i] * li[0] + this.sinBeta[i] * li[1]);
 
+      this.g[i] = gk;
+      this.e[i] = ek;
+      this.f[i] = fk;
+
       const sqSum = ek * ek + fk * fk;
       const sqrt1 = Math.sqrt(Math.max(0, 1 - gk * gk / sqSum));
       const sqrt2 = Math.sqrt(sqSum);
@@ -1273,16 +1293,24 @@ Stewart.prototype = {
 
     const ret = [];
     for (let i = 0; i < this.B.length; i++) {
-      const dz = this.H[i][2] - this.B[i][2];
-      ret[i] = Math.asin(dz / this.hornLength);
-      if (isNaN(ret[i])) {
-        // Rod too short
+      const e = this.e[i];
+      const f = this.f[i];
+      const g = this.g[i];
+
+      const denom = Math.sqrt(e * e + f * f);
+      const ratio = g / denom;
+      if (!isFinite(ratio) || Math.abs(ratio) > 1) {
         ret[i] = null;
-      } else if (!(this.servoRange[0] <= ret[i] && ret[i] <= this.servoRange[1])) {
-        // Out of range
-        ret[i] = null;
+        continue;
       }
 
+      const alpha = Math.asin(ratio) - Math.atan2(f, e);
+
+      if (isNaN(alpha) || alpha < this.servoRange[0] || alpha > this.servoRange[1]) {
+        ret[i] = null;
+      } else {
+        ret[i] = alpha;
+      }
     }
     return ret;
   }
