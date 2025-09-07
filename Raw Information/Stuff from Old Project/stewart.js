@@ -8,6 +8,8 @@
 
 import Quaternion from 'quaternion';
 import Bezier from 'bezier-js';
+import Ajv from 'ajv';
+import layoutSchema from '../Stewart_Layout_Schema.json' assert { type: 'json' };
 /* !simple-compilation */
 
 const TAU = 2 * Math.PI;
@@ -866,6 +868,49 @@ Stewart.prototype = {
     }
 
   },
+
+  initCustom: function (layout) {
+
+    const ajv = new Ajv();
+    const validate = ajv.compile(layoutSchema);
+    if (!validate(layout)) {
+      throw new Error('Invalid layout: ' + ajv.errorsText(validate.errors));
+    }
+
+    this.rodLength = layout.rod_length;
+    this.hornLength = layout.horn_length;
+
+    this.servoRange = (layout.servo_range || [-90, 90]).map(function (d) {
+      return d * Math.PI / 180;
+    });
+
+    this.B = [];
+    this.P = [];
+    this.q = [];
+    this.l = [];
+    this.H = [];
+    this.sinBeta = [];
+    this.cosBeta = [];
+
+    for (let i = 0; i < layout.base_anchors.length; i++) {
+      this.B.push(layout.base_anchors[i]);
+      this.P.push(layout.platform_anchors[i]);
+      this.sinBeta.push(Math.sin(layout.beta_angles[i]));
+      this.cosBeta.push(Math.cos(layout.beta_angles[i]));
+      this.q.push([0, 0, 0]);
+      this.l.push([0, 0, 0]);
+      this.H.push([0, 0, 0]);
+    }
+
+    this.T0 = [0, 0, Math.sqrt(this.rodLength * this.rodLength + this.hornLength * this.hornLength
+      - Math.pow(this.P[0][0] - this.B[0][0], 2)
+      - Math.pow(this.P[0][1] - this.B[0][1], 2))];
+
+    this.drawBasePlate = function () { };
+    this.drawPlatformPlate = function () { };
+    this.servoRangeVisible = false;
+
+  },
   initCircular: function (opts) {
 
     if (!opts)
@@ -886,42 +931,44 @@ Stewart.prototype = {
     const servoRange = opts.servoRange || [-Math.PI / 2, Math.PI / 2];
     const servoRangeVisible = opts.servoRangeVisible === undefined ? false : opts.servoRangeVisible;
 
-    this.init({
-      rodLength: rodLength,
-      hornLength: hornLength,
-      hornDirection: hornDirection,
-      servoRange: servoRange,
-      servoRangeVisible: servoRangeVisible,
-      getLegs: function () {
+    const baseAnchors = [];
+    const platformAnchors = [];
+    const betaAngles = [];
 
-        const legs = [];
-        for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 6; i++) {
 
-          const pm = ((i & 1) ? -1 : 1);
-          const phiCut = (1 + i - i % 2) * Math.PI / 3;
+      const pm = ((i & 1) ? -1 : 1);
+      const phiCut = (1 + i - i % 2) * Math.PI / 3;
 
-          const phiB = (i + i % 2) * Math.PI / 3 + pm * shaftDistance / 2;
-          const phiP = phiCut - pm * anchorDistance / 2;
+      const phiB = (i + i % 2) * Math.PI / 3 + pm * shaftDistance / 2;
+      const phiP = phiCut - pm * anchorDistance / 2;
 
-          legs.push({
-            baseJoint: [Math.cos(phiB) * baseRadius, Math.sin(phiB) * baseRadius, 0],
-            platformJoint: [Math.cos(phiP) * platformRadius, Math.sin(phiP) * platformRadius, 0],
-            motorRotation: phiB + ((i + hornDirection) % 2) * Math.PI + Math.PI / 2
-          });
-        }
-        return legs;
-      },
-      drawBasePlate: function (p) {
-        p.stroke(0);
-        p.fill(0xFE, 0xF1, 0x35);
-        p.ellipse(0, 0, 2 * baseRadius, 2 * baseRadius);
-      },
-      drawPlatformPlate: function (p) {
-        p.stroke(0);
-        p.fill(0x2A, 0xEC, 0xFD);
-        p.ellipse(0, 0, 2 * platformRadius, 2 * platformRadius);
-      }
+      baseAnchors.push([Math.cos(phiB) * baseRadius, Math.sin(phiB) * baseRadius, 0]);
+      platformAnchors.push([Math.cos(phiP) * platformRadius, Math.sin(phiP) * platformRadius, 0]);
+      betaAngles.push(phiB + ((i + hornDirection) % 2) * Math.PI + Math.PI / 2);
+    }
+
+    this.initCustom({
+      base_anchors: baseAnchors,
+      platform_anchors: platformAnchors,
+      beta_angles: betaAngles,
+      horn_length: hornLength,
+      rod_length: rodLength,
+      servo_range: servoRange.map(function (r) { return r * 180 / Math.PI; })
     });
+
+    this.servoRangeVisible = servoRangeVisible;
+
+    this.drawBasePlate = function (p) {
+      p.stroke(0);
+      p.fill(0xFE, 0xF1, 0x35);
+      p.ellipse(0, 0, 2 * baseRadius, 2 * baseRadius);
+    };
+    this.drawPlatformPlate = function (p) {
+      p.stroke(0);
+      p.fill(0x2A, 0xEC, 0xFD);
+      p.ellipse(0, 0, 2 * platformRadius, 2 * platformRadius);
+    };
   },
 
   initHexagonal: function (opts) {
@@ -950,88 +997,86 @@ Stewart.prototype = {
     const servoRange = opts.servoRange || [-Math.PI / 2, Math.PI / 2];
     const servoRangeVisible = opts.servoRangeVisible === undefined ? false : opts.servoRangeVisible;
 
-    this.init({
-      rodLength: rodLength,
-      hornLength: hornLength,
-      hornDirection: hornDirection,
-      servoRange: servoRange,
-      servoRangeVisible: servoRangeVisible,
-      getLegs: function () { // Called once at setup
-        const legs = [];
-        const basePoints = [];
-        const platPoints = [];
-        const motorAngle = [];
+    const basePoints = [];
+    const platPoints = [];
+    const motorAngle = [];
 
-        for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 6; i++) {
 
-          const midK = i | 1;
-          const baseCx = baseInts[midK].x;
-          const baseCy = baseInts[midK].y;
-          const baseNx = baseInts[(midK + 1) % 6].x;
-          const baseNY = baseInts[(midK + 1) % 6].y;
+      const midK = i | 1;
+      const baseCx = baseInts[midK].x;
+      const baseCy = baseInts[midK].y;
+      const baseNx = baseInts[(midK + 1) % 6].x;
+      const baseNY = baseInts[(midK + 1) % 6].y;
 
-          const platCx = platformInts[midK].x;
-          const platCy = platformInts[midK].y;
-          const platNx = platformInts[(midK + 1) % 6].x;
-          const platNY = platformInts[(midK + 1) % 6].y;
+      const platCx = platformInts[midK].x;
+      const platCy = platformInts[midK].y;
+      const platNx = platformInts[(midK + 1) % 6].x;
+      const platNY = platformInts[(midK + 1) % 6].y;
 
-          let baseDX = baseNx - baseCx;
-          let baseDY = baseNY - baseCy;
-          const lenBaseSide = Math.hypot(baseDX, baseDY);
+      let baseDX = baseNx - baseCx;
+      let baseDY = baseNY - baseCy;
+      const lenBaseSide = Math.hypot(baseDX, baseDY);
 
-          const pm = ((i & 1) ? -1 : 1);
+      const pm = ((i & 1) ? -1 : 1);
 
-          const baseMidX = (baseCx + baseNx) / 2;
-          const baseMidY = (baseCy + baseNY) / 2;
+      const baseMidX = (baseCx + baseNx) / 2;
+      const baseMidY = (baseCy + baseNY) / 2;
 
-          const platMidX = (platCx + platNx) / 2;
-          const platMidY = (platCy + platNY) / 2;
+      const platMidX = (platCx + platNx) / 2;
+      const platMidY = (platCy + platNY) / 2;
 
-          baseDX /= lenBaseSide;
-          baseDY /= lenBaseSide;
+      baseDX /= lenBaseSide;
+      baseDY /= lenBaseSide;
 
-          basePoints.push([baseMidX + baseDX * shaftDistance * pm, baseMidY + baseDY * shaftDistance * pm, 0]);
-          platPoints.push([platMidX + baseDX * anchorDistance * pm, platMidY + baseDY * anchorDistance * pm, 0]);
-          motorAngle.push(Math.atan2(baseDY, baseDX) + ((i + hornDirection) % 2) * Math.PI);
-        }
+      basePoints.push([baseMidX + baseDX * shaftDistance * pm, baseMidY + baseDY * shaftDistance * pm, 0]);
+      platPoints.push([platMidX + baseDX * anchorDistance * pm, platMidY + baseDY * anchorDistance * pm, 0]);
+      motorAngle.push(Math.atan2(baseDY, baseDX) + ((i + hornDirection) % 2) * Math.PI);
+    }
 
-        let platformIndex = [0, 1, 2, 3, 4, 5];
+    let platformIndex = [0, 1, 2, 3, 4, 5];
 
-        if (platformTurn) {
-          platformIndex = [4, 3, 0, 5, 2, 1];
-        }
+    if (platformTurn) {
+      platformIndex = [4, 3, 0, 5, 2, 1];
+    }
 
-        for (let i = 0; i < basePoints.length; i++) {
-          legs.push({
-            baseJoint: basePoints[i],
-            platformJoint: platPoints[platformIndex[i]],
-            motorRotation: motorAngle[i]
-          });
-        }
+    const baseAnchors = basePoints;
+    const platformAnchors = [];
+    for (let i = 0; i < platformIndex.length; i++) {
+      platformAnchors.push(platPoints[platformIndex[i]]);
+    }
 
-        return legs;
-      },
-      drawBasePlate: function (p) { // Called periodically
-        p.stroke(0);
-        p.fill(0xFE, 0xF1, 0x35);
-
-        p.beginShape();
-        for (let i = 0; i < baseInts.length; i++) {
-          p.vertex(baseInts[i].x, baseInts[i].y);
-        }
-        p.endShape(p.CLOSE);
-      },
-      drawPlatformPlate: function (p) { // Called periodically
-        p.stroke(0);
-        p.fill(0x2A, 0xEC, 0xFD);
-
-        p.beginShape();
-        for (let i = 0; i < platformInts.length; i++) {
-          p.vertex(platformInts[i].x, platformInts[i].y);
-        }
-        p.endShape(p.CLOSE);
-      }
+    this.initCustom({
+      base_anchors: baseAnchors,
+      platform_anchors: platformAnchors,
+      beta_angles: motorAngle,
+      horn_length: hornLength,
+      rod_length: rodLength,
+      servo_range: servoRange.map(function (r) { return r * 180 / Math.PI; })
     });
+
+    this.servoRangeVisible = servoRangeVisible;
+
+    this.drawBasePlate = function (p) { // Called periodically
+      p.stroke(0);
+      p.fill(0xFE, 0xF1, 0x35);
+
+      p.beginShape();
+      for (let i = 0; i < baseInts.length; i++) {
+        p.vertex(baseInts[i].x, baseInts[i].y);
+      }
+      p.endShape(p.CLOSE);
+    };
+    this.drawPlatformPlate = function (p) { // Called periodically
+      p.stroke(0);
+      p.fill(0x2A, 0xEC, 0xFD);
+
+      p.beginShape();
+      for (let i = 0; i < platformInts.length; i++) {
+        p.vertex(platformInts[i].x, platformInts[i].y);
+      }
+      p.endShape(p.CLOSE);
+    };
   },
 
   draw: (function () {
