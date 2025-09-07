@@ -110,6 +110,13 @@
             font-size: 12px
         }
 
+        .layout-row {
+            display: grid;
+            grid-template-columns: 60px repeat(7, 1fr);
+            gap: 6px;
+            align-items: center;
+        }
+
         .vrow {
             display: flex;
             flex-direction: column;
@@ -309,11 +316,11 @@
     <section class="panel" id="controls-left">
         <h3>Mechanical</h3>
         <div class="lrow"><label for="rodLengthSlider">Rod Length (mm)</label><input type="range" id="rodLengthSlider"
-                min="50" max="300" value="130"><input class="num" type="number" id="rodLengthInput" min="50" max="300"
+                value="130"><input class="num" type="number" id="rodLengthInput"
                 value="130"><button id="rodLengthReset">Reset</button></div>
         <div class="lrow"><label for="hornLengthSlider">Horn Length (mm)</label><input type="range"
-                id="hornLengthSlider" min="10" max="100" value="50"><input class="num" type="number"
-                id="hornLengthInput" min="10" max="100" value="50"><button id="hornLengthReset">Reset</button></div>
+                id="hornLengthSlider" value="50"><input class="num" type="number"
+                id="hornLengthInput" value="50"><button id="hornLengthReset">Reset</button></div>
         <div class="lrow"><label for="baseRadiusSlider">Base Radius (mm)</label><input type="range"
                 id="baseRadiusSlider" min="50" max="200" value="80"><input class="num" type="number"
                 id="baseRadiusInput" min="50" max="200" value="80"><button id="baseRadiusReset">Reset</button></div>
@@ -330,10 +337,7 @@
                 id="shaftDistanceInput" min="0" max="120" value="30"><button id="shaftDistanceReset">Reset</button>
         </div>
 
-        <div class="vrow">
-            <label><input type="checkbox" id="platformTurnCheckbox" checked> Platform Turn</label>
-            <label><input type="checkbox" id="hornDirCheckbox"> Horn Direction</label>
-        </div>
+
 
         <div class="vrow">
             <label class="inline"><span>Servo Angle Range (°)</span><span class="muted">min / max</span></label>
@@ -344,6 +348,15 @@
                 <input class="num" id="servoMaxInput" type="number" step="1" value="90"
                     aria-label="Servo max (degrees)">
                 <button id="servoRangeReset">Reset</button>
+            </div>
+        </div>
+
+        <h3>Layout</h3>
+        <div class="vrow">
+            <div id="layoutContainer"></div>
+            <div style="display:flex; gap:10px;">
+                <button id="importLayoutBtn">Import Layout</button>
+                <button id="exportLayoutBtn">Export Layout</button>
             </div>
         </div>
 
@@ -583,11 +596,13 @@
             '#f1c40f'  // Servo 6 – yellow
         ];
 
-        const opts = {
-            rodLength: 130, hornLength: 50, baseRadius: 80, platformRadius: 50,
-            anchorDistance: 40, shaftDistance: 30,
-            platformTurn: true, hornDirection: false,
-            servoRange: [-90 * Math.PI / 180, 90 * Math.PI / 180]
+        const layout = {
+            base_anchors: [[70, 0, 0], [35, 60, 0], [-35, 60, 0], [-70, 0, 0], [-35, -60, 0], [35, -60, 0]],
+            platform_anchors: [[50, 0, 0], [25, 43, 0], [-25, 43, 0], [-50, 0, 0], [-25, -43, 0], [25, -43, 0]],
+            beta_angles: [0, 1.047, 2.094, 3.142, -2.094, -1.047],
+            horn_length: 50,
+            rod_length: 120,
+            servo_range: [-90, 90]
         };
 
         // Simple playback control (external to Stewart.Animation so we can scale speed)
@@ -882,8 +897,7 @@
         // ---------- Platform & Animator ----------
         function rebuildPlatform() {
             platform = new Stewart();
-            platform.initHexagonal(opts);
-            if (Array.isArray(opts.servoRange)) platform.servoRange = opts.servoRange.slice();
+            platform.initCustom(JSON.parse(JSON.stringify(layout)));
 
             // Stewart.Animation for RAW‑exact motion
             animator = new Stewart.Animation(platform);
@@ -959,45 +973,106 @@
         }
 
         // ---------- Left panel (mechanical) ----------
-        function bindLeft(sliderId, inputId, resetId, key, defVal) {
+        function bindLeft(sliderId, inputId, resetId, key) {
             const s = document.getElementById(sliderId), n = document.getElementById(inputId), r = document.getElementById(resetId);
             const apply = (v) => {
-                const val = clamp(Math.round(v), +s.min, +s.max);
-                s.value = val; n.value = val; opts[key] = val; rebuildPlatform();
+                const val = +v || 0;
+                if (val < +s.min) s.min = val;
+                if (val > +s.max) s.max = val;
+                s.value = val; n.value = val; layout[key] = val; rebuildPlatform();
             };
-            s.oninput = () => apply(+s.value); n.onchange = () => apply(+n.value); r.onclick = () => apply(defVal);
+            s.oninput = () => apply(+s.value);
+            n.onchange = () => apply(+n.value);
+            r.onclick = () => apply(layout[key]);
         }
-        bindLeft("rodLengthSlider", "rodLengthInput", "rodLengthReset", "rodLength", 130);
-        bindLeft("hornLengthSlider", "hornLengthInput", "hornLengthReset", "hornLength", 50);
-        bindLeft("baseRadiusSlider", "baseRadiusInput", "baseRadiusReset", "baseRadius", 80);
-        bindLeft("platformRadiusSlider", "platformRadiusInput", "platformRadiusReset", "platformRadius", 50);
-        bindLeft("anchorDistanceSlider", "anchorDistanceInput", "anchorDistanceReset", "anchorDistance", 40);
-        bindLeft("shaftDistanceSlider", "shaftDistanceInput", "shaftDistanceReset", "shaftDistance", 30);
-        document.getElementById("platformTurnCheckbox").onchange = e => {
-            opts.platformTurn = e.target.checked;
-            rebuildPlatform();
-            // Stop any running animation to prevent the ghost wobble bug
-            pause();
-            setToggleUI(false);
-            uiAnim.pattern = 'none';
-        };
-        document.getElementById("hornDirCheckbox").onchange = e => {
-            opts.hornDirection = e.target.checked;
-            rebuildPlatform();
-            // Stop any running animation to prevent the ghost wobble bug
-            pause();
-            setToggleUI(false);
-            uiAnim.pattern = 'none';
-        };
+        bindLeft("rodLengthSlider", "rodLengthInput", "rodLengthReset", "rod_length");
+        bindLeft("hornLengthSlider", "hornLengthInput", "hornLengthReset", "horn_length");
         function updateServoRange() {
             const minDeg = parseFloat(document.getElementById("servoMinInput").value) || -90;
             const maxDeg = parseFloat(document.getElementById("servoMaxInput").value) || 90;
-            opts.servoRange = [minDeg * Math.PI / 180, maxDeg * Math.PI / 180];
-            if (platform) platform.servoRange = opts.servoRange.slice();
+            layout.servo_range = [minDeg, maxDeg];
+            rebuildPlatform();
         }
         document.getElementById("servoMinInput").onchange = updateServoRange;
         document.getElementById("servoMaxInput").onchange = updateServoRange;
         document.getElementById("servoRangeReset").onclick = () => { document.getElementById("servoMinInput").value = -90; document.getElementById("servoMaxInput").value = 90; updateServoRange(); };
+
+        function buildLayoutInputs() {
+            const container = document.getElementById('layoutContainer');
+            container.innerHTML = '';
+            const header = document.createElement('div');
+            header.className = 'layout-row';
+            header.innerHTML = '<span>Leg</span><span>Bx</span><span>By</span><span>Bz</span><span>Px</span><span>Py</span><span>Pz</span><span>&beta;</span>';
+            container.appendChild(header);
+            for (let i = 0; i < 6; i++) {
+                const row = document.createElement('div');
+                row.className = 'layout-row';
+                row.innerHTML = `<span>${i + 1}</span>` +
+                    `<input type="number" id="b${i}x" value="${layout.base_anchors[i][0]}">` +
+                    `<input type="number" id="b${i}y" value="${layout.base_anchors[i][1]}">` +
+                    `<input type="number" id="b${i}z" value="${layout.base_anchors[i][2]}">` +
+                    `<input type="number" id="p${i}x" value="${layout.platform_anchors[i][0]}">` +
+                    `<input type="number" id="p${i}y" value="${layout.platform_anchors[i][1]}">` +
+                    `<input type="number" id="p${i}z" value="${layout.platform_anchors[i][2]}">` +
+                    `<input type="number" id="beta${i}" value="${layout.beta_angles[i]}">`;
+                container.appendChild(row);
+                ['x', 'y', 'z'].forEach((axis, idx) => {
+                    document.getElementById(`b${i}${axis}`).onchange = (e) => { layout.base_anchors[i][idx] = +e.target.value; rebuildPlatform(); };
+                    document.getElementById(`p${i}${axis}`).onchange = (e) => { layout.platform_anchors[i][idx] = +e.target.value; rebuildPlatform(); };
+                });
+                document.getElementById(`beta${i}`).onchange = (e) => { layout.beta_angles[i] = +e.target.value; rebuildPlatform(); };
+            }
+        }
+        buildLayoutInputs();
+
+        document.getElementById('importLayoutBtn').onclick = () => {
+            const inp = document.createElement('input');
+            inp.type = 'file';
+            inp.accept = 'application/json';
+            inp.onchange = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = ev => {
+                    try {
+                        const data = JSON.parse(ev.target.result);
+                        if (data.base_anchors) layout.base_anchors = data.base_anchors;
+                        if (data.platform_anchors) layout.platform_anchors = data.platform_anchors;
+                        if (data.beta_angles) layout.beta_angles = data.beta_angles;
+                        if (data.horn_length !== undefined) layout.horn_length = data.horn_length;
+                        if (data.rod_length !== undefined) layout.rod_length = data.rod_length;
+                        if (data.servo_range) layout.servo_range = data.servo_range;
+                        const hs = document.getElementById('hornLengthSlider');
+                        if (layout.horn_length < +hs.min) hs.min = layout.horn_length;
+                        if (layout.horn_length > +hs.max) hs.max = layout.horn_length;
+                        hs.value = layout.horn_length;
+                        document.getElementById('hornLengthInput').value = layout.horn_length;
+                        const rs = document.getElementById('rodLengthSlider');
+                        if (layout.rod_length < +rs.min) rs.min = layout.rod_length;
+                        if (layout.rod_length > +rs.max) rs.max = layout.rod_length;
+                        rs.value = layout.rod_length;
+                        document.getElementById('rodLengthInput').value = layout.rod_length;
+                        document.getElementById('servoMinInput').value = layout.servo_range[0];
+                        document.getElementById('servoMaxInput').value = layout.servo_range[1];
+                        buildLayoutInputs();
+                        rebuildPlatform();
+                    } catch (err) { alert('Invalid layout'); }
+                };
+                reader.readAsText(file);
+            };
+            inp.click();
+        };
+
+        document.getElementById('exportLayoutBtn').onclick = () => {
+            const dataStr = JSON.stringify(layout, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'layout.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        };
 
         // ---------- View (updated mapping/range) ----------
         const viewXSlider = document.getElementById('viewXSlider'), viewXInput = document.getElementById('viewXInput');
