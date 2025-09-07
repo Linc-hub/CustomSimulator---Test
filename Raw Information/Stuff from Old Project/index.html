@@ -837,8 +837,9 @@
                 let updateSucceeded = true;
                 try { platform.update(composed.finalT, composed.finalQ); } catch (e) { updateSucceeded = false; }
                 let anglesOK = true;
+                let angs = null;
                 if (updateSucceeded && platform.getServoAngles) {
-                    const angs = platform.getServoAngles();
+                    angs = platform.getServoAngles();
                     anglesOK = Array.isArray(angs) && angs.every(a => a !== null);
                 }
                 if (!updateSucceeded || (ikClampEnabled && !anglesOK)) {
@@ -868,7 +869,7 @@
                 }
 
                 // Update servo angles display
-                if (typeof updateServoAnglesUI === 'function') updateServoAnglesUI();
+                if (typeof updateServoAnglesUI === 'function') updateServoAnglesUI(angs);
 
                 p.pop();
 
@@ -1452,10 +1453,9 @@
         });
 
         // ---------- Servo angles UI ----------
-        function updateServoAnglesUI() {
+        function updateServoAnglesUI(angs) {
             const list = document.querySelectorAll('#servoAnglesList li span');
-            if (!platform || !platform.getServoAngles || list.length < 6) return;
-            const angs = platform.getServoAngles();
+            if (!Array.isArray(angs) || list.length < 6) return;
             for (let i = 0; i < 6; i++) {
                 const a = angs && angs[i];
                 const deg = (a === null || a === undefined) ? null : Math.round(a * 180 / Math.PI);
