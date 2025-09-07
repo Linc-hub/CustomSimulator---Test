@@ -898,7 +898,47 @@
         };
         new p5(sketch);
 
-        
+
+Stewart.prototype.initCustom = function (layout) {
+    this.rodLength = layout.rod_length;
+    this.hornLength = layout.horn_length;
+    this.servoRange = (layout.servo_range || [-90, 90]).map(d => d * Math.PI / 180);
+
+    this.B = [];
+    this.P = [];
+    this.q = [];
+    this.l = [];
+    this.H = [];
+    this.e = [];
+    this.f = [];
+    this.g = [];
+    this.sinBeta = [];
+    this.cosBeta = [];
+
+    for (let i = 0; i < layout.base_anchors.length; i++) {
+        this.B.push(layout.base_anchors[i]);
+        this.P.push(layout.platform_anchors[i]);
+        this.sinBeta.push(Math.sin(layout.beta_angles[i]));
+        this.cosBeta.push(Math.cos(layout.beta_angles[i]));
+        this.q.push([0, 0, 0]);
+        this.l.push([0, 0, 0]);
+        this.H.push([0, 0, 0]);
+        this.e.push(0);
+        this.f.push(0);
+        this.g.push(0);
+    }
+
+    this.T0 = [0, 0, Math.sqrt(
+        this.rodLength * this.rodLength + this.hornLength * this.hornLength -
+        Math.pow(this.P[0][0] - this.B[0][0], 2) -
+        Math.pow(this.P[0][1] - this.B[0][1], 2)
+    )];
+
+    this.drawBasePlate = function () { };
+    this.drawPlatformPlate = function () { };
+    this.servoRangeVisible = false;
+};
+
 Stewart.prototype.initAyva = function (opts) {
     const baseX = opts.baseXOffset || 60;
     const ySpacing = opts.ySpacing || 40;
