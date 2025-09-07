@@ -469,6 +469,21 @@
         </details>
     </section>
 
+    <!-- Workspace sweep panel -->
+    <section class="panel" id="workspacePanel">
+        <h3>Workspace Sweep</h3>
+        <div class="vrow"><button id="runWorkspace">Run Sweep</button></div>
+        <div class="vrow">Coverage: <span id="coveragePct">0%</span></div>
+        <details>
+            <summary>Limit Violations</summary>
+            <ul id="violationsList" style="list-style:none; padding-left:0; margin:8px 0;"></ul>
+        </details>
+        <div class="vrow">
+            <button id="exportWorkspaceJson">Export JSON</button>
+            <button id="exportWorkspaceCsv">Export CSV</button>
+        </div>
+    </section>
+
     <!-- Keyboard control panel (shown when Keyboard pattern is selected) -->
     <section class="panel" id="keyboardPanel" style="display:none;">
         <h3>Keyboard</h3>
@@ -1597,6 +1612,47 @@ Stewart.prototype.initAyva = function (opts) {
                 animator.next = null;
             }
         };
+    </script>
+    <script type="module">
+        import { computeWorkspace, exportResults } from '../workspace.js';
+
+        const ranges = {
+            x: { min: -50, max: 50, step: 10 },
+            y: { min: -50, max: 50, step: 10 },
+            z: { min: -20, max: 20, step: 10 },
+            rx: { min: -10, max: 10, step: 5 },
+            ry: { min: -10, max: 10, step: 5 },
+            rz: { min: -10, max: 10, step: 5 },
+        };
+
+        let lastResult = null;
+        const runBtn = document.getElementById('runWorkspace');
+        const coverageEl = document.getElementById('coveragePct');
+        const violationsEl = document.getElementById('violationsList');
+
+        runBtn?.addEventListener('click', () => {
+            if (!window.platform) return;
+            lastResult = computeWorkspace(window.platform, ranges, {
+                payload: 1,
+                stroke: 10,
+                frequency: 1,
+                servoTorqueLimit: window.platform.servoTorqueLimit || Infinity,
+            });
+            coverageEl.textContent = (lastResult.coverage * 100).toFixed(1) + '%';
+            violationsEl.innerHTML = '';
+            lastResult.violations.forEach(v => {
+                const li = document.createElement('li');
+                li.textContent = v;
+                violationsEl.appendChild(li);
+            });
+        });
+
+        document.getElementById('exportWorkspaceJson')?.addEventListener('click', () => {
+            exportResults(lastResult, 'json');
+        });
+        document.getElementById('exportWorkspaceCsv')?.addEventListener('click', () => {
+            exportResults(lastResult, 'csv');
+        });
     </script>
 </body>
 
