@@ -896,7 +896,10 @@
 
         // ---------- Platform & Animator ----------
         function rebuildPlatform() {
-            platform = new Stewart();
+            // Reinitialize the existing simulator with the current layout
+            if (!platform) {
+                platform = new Stewart();
+            }
             platform.initCustom(JSON.parse(JSON.stringify(layout)));
 
             // Stewart.Animation for RAW‑exact motion
