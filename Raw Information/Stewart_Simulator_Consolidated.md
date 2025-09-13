@@ -149,10 +149,10 @@ No limits: sliders should not enforce min/max.
 
 ## 7. Example Layouts
 
-### AYVA Layout
+### Linear Layout
 ```json
 {
-  "name": "AYVA Optimized Layout (X-axis stroke)",
+  "name": "Optimized Linear Layout (X-axis travel)",
   "base_anchors": [
     [
       -60,

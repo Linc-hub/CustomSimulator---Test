@@ -39,7 +39,7 @@ Instruction: Treat all as idealized defaults for symmetrical layouts, but remove
 - Color rods when servo angle exceeds limit.
 
 ## 6. New Features
-- Support AYVA layouts (linear anchors, aligned with X or Z).
+- Support linear layouts (aligned with X or Z).
 - Support custom JSON imports (anchors, horn/rod lengths).
 - Allow batch simulations (sweep variables, plot results).
 
