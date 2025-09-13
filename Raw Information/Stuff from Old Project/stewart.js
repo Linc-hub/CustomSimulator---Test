@@ -1340,21 +1340,7 @@ Stewart.prototype = {
   },
 
   getServoAngles: function () {
-    const ret = [];
-    const out = [];
-    for (let i = 0; i < this.B.length; i++) {
-      const alpha = this._calcServoAngle(this.e[i], this.f[i], this.g[i]);
-      if (alpha === null || (this.servoRange && (alpha < this.servoRange[0] || alpha > this.servoRange[1]))) {
-        ret[i] = null;
-        out[i] = true;
-      } else {
-        ret[i] = alpha;
-        out[i] = false;
-      }
-    }
-    this.outOfRangeLegs = out;
-    this.servoAngles = ret;
-    return ret;
+    return this.servoAngles;
   }
 
 };
