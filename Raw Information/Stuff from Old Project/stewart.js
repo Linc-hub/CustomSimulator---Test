@@ -80,7 +80,7 @@ function parseSVGPath(str) {
         // Reset start position
         start = { x: cur.x, y: cur.y };
 
-        // Implicitely treat move as lineTo
+        // Implicitly treat the initial move as a line command
         cmd = 'L';
         break;
       }
@@ -1296,13 +1296,13 @@ Stewart.prototype = {
       Hi[2] = Bi[2] + hornLength * sinAlpha;
     }
 
-    // Recompute servo angles and mark any legs outside the allowed range
-    if (this.getServoAngles) {
-      this.getServoAngles();
+    // Compute servo angles and mark any legs outside the allowed range
+    if (this.computeAngles) {
+      this.computeAngles();
     }
   },
 
-  getServoAngles: function () {
+  computeAngles: function () {
 
     const ret = [];
     const out = [];

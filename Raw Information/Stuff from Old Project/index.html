@@ -642,7 +642,7 @@
                     'XYZ'
                 );
                 platform.update([pos.x || 0, pos.y || 0, pos.z || 0], candQ);
-                const angles = platform.getServoAngles && platform.getServoAngles();
+                const angles = platform.computeAngles && platform.computeAngles();
                 const anglesOK = Array.isArray(angles) && angles.every(a => a !== null);
                 let hornsOK = true;
                 if (platform.B && platform.H && platform.hornLength) {
@@ -853,8 +853,8 @@
                 try { platform.update(composed.finalT, composed.finalQ); } catch (e) { updateSucceeded = false; }
                 let anglesOK = true;
                 let angs = null;
-                if (updateSucceeded && platform.getServoAngles) {
-                    angs = platform.getServoAngles();
+                if (updateSucceeded && platform.computeAngles) {
+                    angs = platform.computeAngles();
                     anglesOK = Array.isArray(angs) && angs.every(a => a !== null);
                 }
                 if (!updateSucceeded || (ikClampEnabled && !anglesOK)) {

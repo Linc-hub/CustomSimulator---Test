@@ -65,7 +65,7 @@ export function computeWorkspace(platform, ranges, options = {}) {
                 const prevPos = platform.translation ? platform.translation.slice() : [0, 0, 0];
                 const prevQ = platform.orientation || QuaternionObj.ONE;
                 platform.update(pos, q);
-                const angles = platform.getServoAngles && platform.getServoAngles();
+                const angles = platform.computeAngles && platform.computeAngles();
                 if (!angles || angles.some(a => a === null)) {
                   ok = false; reason = 'IK';
                 }
