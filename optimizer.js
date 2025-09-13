@@ -214,11 +214,43 @@ export class Optimizer {
     } else {
       return data;
     }
-    const blob = new Blob([data], { type: 'application/json' });
+    this.download(data, 'layout.json', 'application/json');
+  }
+
+  /** Export current Pareto front */
+  exportPareto(format = 'json') {
+    if (!this.pareto.length) return;
+    let data = '';
+    let mime = 'application/json';
+    if (format === 'json') {
+      data = JSON.stringify(this.pareto, null, 2);
+    } else if (format === 'csv') {
+      const rows = [['hornLength','rodLength','coverage','torque','dexterity','stiffness']];
+      this.pareto.forEach(p => {
+        rows.push([
+          p.layout.hornLength,
+          p.layout.rodLength,
+          p.coverage,
+          p.torque,
+          p.dexterity,
+          p.stiffness
+        ]);
+      });
+      data = rows.map(r => r.join(',')).join('\n');
+      mime = 'text/csv';
+    } else {
+      return;
+    }
+    this.download(data, 'pareto.' + (format === 'csv' ? 'csv' : 'json'), mime);
+  }
+
+  /** Utility to trigger file download in browser */
+  download(data, filename, mime) {
+    const blob = new Blob([data], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'layout.json';
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -227,10 +259,11 @@ export class Optimizer {
 }
 
 /** Attach UI hooks */
-export function attachUI(optimizer, { startBtn, stopBtn, paretoCanvas, exportBtn }) {
+export function attachUI(optimizer, { startBtn, stopBtn, paretoCanvas, exportBtn, paretoExportBtn }) {
   if (startBtn) startBtn.addEventListener('click', () => optimizer.start());
   if (stopBtn) stopBtn.addEventListener('click', () => optimizer.stop());
   if (exportBtn) exportBtn.addEventListener('click', () => optimizer.exportBest());
+  if (paretoExportBtn) paretoExportBtn.addEventListener('click', () => optimizer.exportPareto());
   if (paretoCanvas) {
     const ctx = paretoCanvas.getContext('2d');
     const draw = () => {
