@@ -899,10 +899,11 @@ Stewart.prototype = {
 
     const len = layout.base_anchors.length;
 
-    this.B = layout.base_anchors.map(function (a) { return a.slice(); });
-    this.P = layout.platform_anchors.map(function (a) { return a.slice(); });
-    this.sinBeta = layout.beta_angles.map(function (b) { return Math.sin(b); });
-    this.cosBeta = layout.beta_angles.map(function (b) { return Math.cos(b); });
+    this.B = layout.base_anchors.map(a => a.slice());
+    this.P = layout.platform_anchors.map(a => a.slice());
+    // Use general β-angle expressions
+    this.sinBeta = layout.beta_angles.map(b => Math.sin(b));
+    this.cosBeta = layout.beta_angles.map(b => Math.cos(b));
 
     this.q = Array.from({ length: len }, () => [0, 0, 0]);
     this.l = Array.from({ length: len }, () => [0, 0, 0]);
