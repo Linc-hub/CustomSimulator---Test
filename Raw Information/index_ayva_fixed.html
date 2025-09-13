@@ -484,6 +484,37 @@
         </div>
     </section>
 
+    <!-- Optimization panel -->
+    <section class="panel" id="optimizationPanel">
+        <h3>Optimization</h3>
+        <div class="vrow">
+            <label class="inline"><span>Generations</span><input class="num" id="optGenerations" type="number" min="1" value="10"></label>
+        </div>
+        <div class="vrow">
+            <label class="inline"><span>X Range (mm)</span><input class="num" id="optXMin" type="number" value="-50"><span class="muted">to</span><input class="num" id="optXMax" type="number" value="50"></label>
+        </div>
+        <div class="vrow">
+            <label class="inline"><span>Y Range (mm)</span><input class="num" id="optYMin" type="number" value="-50"><span class="muted">to</span><input class="num" id="optYMax" type="number" value="50"></label>
+        </div>
+        <div class="vrow">
+            <label class="inline"><span>Z Range (mm)</span><input class="num" id="optZMin" type="number" value="-20"><span class="muted">to</span><input class="num" id="optZMax" type="number" value="20"></label>
+        </div>
+        <div class="vrow">
+            <label class="inline"><span>Rx Range (°)</span><input class="num" id="optRxMin" type="number" value="-10"><span class="muted">to</span><input class="num" id="optRxMax" type="number" value="10"></label>
+        </div>
+        <div class="vrow">
+            <label class="inline"><span>Ry Range (°)</span><input class="num" id="optRyMin" type="number" value="-10"><span class="muted">to</span><input class="num" id="optRyMax" type="number" value="10"></label>
+        </div>
+        <div class="vrow">
+            <label class="inline"><span>Rz Range (°)</span><input class="num" id="optRzMin" type="number" value="-10"><span class="muted">to</span><input class="num" id="optRzMax" type="number" value="10"></label>
+        </div>
+        <div class="vrow">
+            <button id="runOptimization">Run Optimization</button>
+            <button id="exportBestLayout">Export Best Layout</button>
+        </div>
+        <div class="vrow"><div id="optStatus" class="muted">Idle</div></div>
+    </section>
+
     <!-- Keyboard control panel (shown when Keyboard pattern is selected) -->
     <section class="panel" id="keyboardPanel" style="display:none;">
         <h3>Keyboard</h3>
@@ -1686,6 +1717,49 @@ Stewart.prototype.initAyva = function (opts) {
                 });
             });
         };
+        // Optimization module lazy loader and UI hooks
+        let optimizerModule = null;
+        let currentOptimizer = null;
+        function ensureOptimizerModule() {
+            return optimizerModule ? Promise.resolve(optimizerModule) :
+                import('../optimizer.js').then(m => { optimizerModule = m; return m; });
+        }
+        const runOptBtn = document.getElementById('runOptimization');
+        const exportBestBtn = document.getElementById('exportBestLayout');
+        const optStatus = document.getElementById('optStatus');
+
+        runOptBtn?.addEventListener('click', async () => {
+            if (!window.platform) return;
+            const { Optimizer } = await ensureOptimizerModule();
+            const gens = parseInt(document.getElementById('optGenerations').value, 10) || 10;
+            const ranges = {
+                x: { min: parseFloat(document.getElementById('optXMin').value), max: parseFloat(document.getElementById('optXMax').value) },
+                y: { min: parseFloat(document.getElementById('optYMin').value), max: parseFloat(document.getElementById('optYMax').value) },
+                z: { min: parseFloat(document.getElementById('optZMin').value), max: parseFloat(document.getElementById('optZMax').value) },
+                rx: { min: parseFloat(document.getElementById('optRxMin').value), max: parseFloat(document.getElementById('optRxMax').value) },
+                ry: { min: parseFloat(document.getElementById('optRyMin').value), max: parseFloat(document.getElementById('optRyMax').value) },
+                rz: { min: parseFloat(document.getElementById('optRzMin').value), max: parseFloat(document.getElementById('optRzMax').value) },
+            };
+            currentOptimizer = new Optimizer(window.platform, { generations: gens, ranges });
+            const update = () => {
+                optStatus.textContent = `Generation ${currentOptimizer.generation}/${currentOptimizer.generations}`;
+                if (currentOptimizer.running) requestAnimationFrame(update);
+            };
+            currentOptimizer.start(() => {
+                const best = currentOptimizer.fitness[0];
+                optStatus.textContent = `Done. Coverage ${(best.coverage * 100).toFixed(1)}%`;
+            });
+            update();
+        });
+
+        exportBestBtn?.addEventListener('click', async () => {
+            if (!currentOptimizer) {
+                optStatus.textContent = 'Run optimization first';
+                return;
+            }
+            await ensureOptimizerModule();
+            currentOptimizer.exportBest();
+        });
     </script>
 </body>
 
