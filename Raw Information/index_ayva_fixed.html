@@ -1673,7 +1673,8 @@ Stewart.prototype.initAyva = function (opts) {
                     violationsEl.innerHTML = '';
                     lastResult.violations.forEach(v => {
                         const li = document.createElement('li');
-                        li.textContent = v;
+                        const txt = v.count ? `${v.reason} (${v.count})` : v.reason;
+                        li.textContent = txt;
                         violationsEl.appendChild(li);
                     });
                 });
