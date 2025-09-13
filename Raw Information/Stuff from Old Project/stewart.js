@@ -1307,48 +1307,44 @@ Stewart.prototype = {
       this.e[i] = ek;
       this.f[i] = fk;
 
-      const sqSum = ek * ek + fk * fk;
-      const sqrt1 = Math.sqrt(Math.max(0, 1 - gk * gk / sqSum));
-      const sqrt2 = Math.sqrt(sqSum);
-      const sinAlpha = (gk * ek) / sqSum - (fk * sqrt1) / sqrt2;
-      const cosAlpha = (gk * fk) / sqSum + (ek * sqrt1) / sqrt2;
+      let alpha = this._calcServoAngle(ek, fk, gk);
+      if (alpha === null || (this.servoRange && (alpha < this.servoRange[0] || alpha > this.servoRange[1]))) {
+        this.servoAngles[i] = null;
+        this.outOfRangeLegs[i] = true;
+        alpha = 0;
+      } else {
+        this.servoAngles[i] = alpha;
+        this.outOfRangeLegs[i] = false;
+      }
+
+      const sinAlpha = Math.sin(alpha);
+      const cosAlpha = Math.cos(alpha);
 
       Hi[0] = Bi[0] + hornLength * cosAlpha * this.cosBeta[i];
       Hi[1] = Bi[1] + hornLength * cosAlpha * this.sinBeta[i];
       Hi[2] = Bi[2] + hornLength * sinAlpha;
     }
-    if (this.getServoAngles) {
-      this.getServoAngles();
+  },
+
+  _calcServoAngle: function (e, f, g) {
+    const denom = Math.hypot(e, f);
+    if (!isFinite(denom) || denom === 0) {
+      return null;
     }
+    let ratio = g / denom;
+    if (!isFinite(ratio) || Math.abs(ratio) > 1) {
+      return null;
+    }
+    ratio = Math.max(-1, Math.min(1, ratio));
+    return Math.asin(ratio) - Math.atan2(f, e);
   },
 
   getServoAngles: function () {
-
     const ret = [];
     const out = [];
     for (let i = 0; i < this.B.length; i++) {
-      const e = this.e[i];
-      const f = this.f[i];
-      const g = this.g[i];
-
-      const denom = Math.hypot(e, f);
-      if (!isFinite(denom) || denom === 0) {
-        ret[i] = null;
-        out[i] = true;
-        continue;
-      }
-
-      const ratio = g / denom;
-      if (!isFinite(ratio) || Math.abs(ratio) > 1) {
-        ret[i] = null;
-        out[i] = true;
-        continue;
-      }
-
-      const clamped = Math.min(1, Math.max(-1, ratio));
-      const alpha = Math.asin(clamped) - Math.atan2(f, e);
-
-      if (isNaN(alpha) || (this.servoRange && (alpha < this.servoRange[0] || alpha > this.servoRange[1]))) {
+      const alpha = this._calcServoAngle(this.e[i], this.f[i], this.g[i]);
+      if (alpha === null || (this.servoRange && (alpha < this.servoRange[0] || alpha > this.servoRange[1]))) {
         ret[i] = null;
         out[i] = true;
       } else {
