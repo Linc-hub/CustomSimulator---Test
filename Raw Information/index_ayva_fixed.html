@@ -609,6 +609,15 @@
             servoRange: [-90 * Math.PI / 180, 90 * Math.PI / 180]
         };
 
+        let ayvaLayoutCache = null;
+        async function loadAyvaLayout() {
+            if (!ayvaLayoutCache) {
+                const resp = await fetch('AYVA_Optimized_Layout.json');
+                ayvaLayoutCache = await resp.json();
+            }
+            return ayvaLayoutCache;
+        }
+
         // Simple playback control (external to Stewart.Animation so we can scale speed)
         const uiAnim = { playing: false, pattern: 'none', pct: 100, startMs: 0 };
         Object.defineProperty(uiAnim, 'periodScale', { get() { return 100 / Math.max(10, Math.min(300, this.pct)); } });
@@ -970,13 +979,14 @@ Stewart.prototype.initAyva = function (opts) {
 };
 
         // ---------- Platform & Animator ----------
-        function rebuildPlatform() {
+        async function rebuildPlatform() {
             platform = new Stewart();
-    if (document.getElementById("ayvaLayoutCheckbox") && document.getElementById("ayvaLayoutCheckbox").checked) {
-        platform.initAyva(opts);
-    } else {
-        platform.initHexagonal(opts);
-    }
+            if (document.getElementById("ayvaLayoutCheckbox") && document.getElementById("ayvaLayoutCheckbox").checked) {
+                const layout = await loadAyvaLayout();
+                platform.initCustom(layout);
+            } else {
+                platform.initHexagonal(opts);
+            }
             if (Array.isArray(opts.servoRange)) platform.servoRange = opts.servoRange.slice();
             window.platform = platform;
 
