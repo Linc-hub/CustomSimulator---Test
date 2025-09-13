@@ -64,16 +64,9 @@ export function computeWorkspace(platform, ranges, options = {}) {
                 const prevPos = platform.translation ? platform.translation.slice() : [0, 0, 0];
                 const prevQ = platform.orientation || QuaternionObj.ONE;
                 platform.update(pos, q);
-                const angles = platform.getServoAngles && platform.getServoAngles();
+                const angles = platform.servoAngles;
                 if (!angles || angles.some(a => a === null)) {
-                  ok = false; reason = 'IK';
-                }
-                if (ok && platform.servoRange) {
-                  for (const a of angles) {
-                    if (a < platform.servoRange[0] || a > platform.servoRange[1]) {
-                      ok = false; reason = 'servo range'; break;
-                    }
-                  }
+                  ok = false; reason = 'servo range';
                 }
                 if (ok && platform.B && platform.H && platform.hornLength) {
                   const tol = Math.max(1e-3 * platform.hornLength, 0.5);
@@ -97,7 +90,6 @@ export function computeWorkspace(platform, ranges, options = {}) {
               const pose = { x, y, z, rx, ry, rz };
               if (ok) {
                 reachable.push(pose);
-                console.log('reachable', pose);
               } else {
                 failures.push({ pose, reason });
               }
