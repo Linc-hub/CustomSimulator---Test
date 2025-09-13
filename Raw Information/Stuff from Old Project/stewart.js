@@ -1169,9 +1169,6 @@ Stewart.prototype = {
 
     return function (p) {
 
-      // Update servo status
-      this.getServoAngles && this.getServoAngles();
-
       // Base Frame
       drawFrame(p);
 
@@ -1241,6 +1238,8 @@ Stewart.prototype = {
         for (let i = 0; i < this.outOfRangeLegs.length; i++) {
           if (this.outOfRangeLegs[i]) badIdx.push(i + 1);
         }
+        // Optional console warning to aid debugging or provide an external UI hook
+        console.warn(`Out-of-range servos: ${badIdx.join(', ')}`);
         p.push();
         p.resetMatrix();
         p.translate(-p.width / 2, -p.height / 2);
@@ -1303,6 +1302,11 @@ Stewart.prototype = {
       Hi[0] = Bi[0] + hornLength * cosAlpha * this.cosBeta[i];
       Hi[1] = Bi[1] + hornLength * cosAlpha * this.sinBeta[i];
       Hi[2] = Bi[2] + hornLength * sinAlpha;
+    }
+
+    // Recompute servo angles and mark any legs outside the allowed range
+    if (this.getServoAngles) {
+      this.getServoAngles();
     }
   },
 
