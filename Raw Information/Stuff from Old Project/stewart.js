@@ -833,6 +833,9 @@ Stewart.prototype = {
   f: [], // helper parameter f_k = 2 h (cosβ l_kx + sinβ l_ky)
   g: [], // helper parameter g_k = ||l_k||² - (d² - h²)
 
+  servoAngles: [], // last computed servo angles α_k
+  outOfRangeLegs: [], // flags for legs outside servo limits
+
   T0: [], // Initial offset
 
   init: function (opts) {
@@ -855,6 +858,8 @@ Stewart.prototype = {
     this.g = [];
     this.sinBeta = [];
     this.cosBeta = [];
+    this.servoAngles = [];
+    this.outOfRangeLegs = [];
 
     const legs = opts.getLegs.call(this);
 
@@ -869,6 +874,8 @@ Stewart.prototype = {
       this.e.push(0);
       this.f.push(0);
       this.g.push(0);
+      this.servoAngles.push(0);
+      this.outOfRangeLegs.push(false);
     }
 
     if (opts.absoluteHeight) {
@@ -906,6 +913,8 @@ Stewart.prototype = {
     this.g = [];
     this.sinBeta = [];
     this.cosBeta = [];
+    this.servoAngles = [];
+    this.outOfRangeLegs = [];
 
     for (let i = 0; i < layout.base_anchors.length; i++) {
       this.B.push(layout.base_anchors[i]);
@@ -918,6 +927,8 @@ Stewart.prototype = {
       this.e.push(0);
       this.f.push(0);
       this.g.push(0);
+      this.servoAngles.push(0);
+      this.outOfRangeLegs.push(false);
     }
 
     this.T0 = [0, 0, Math.sqrt(this.rodLength * this.rodLength + this.hornLength * this.hornLength
@@ -1170,7 +1181,9 @@ Stewart.prototype = {
     return function (p) {
 
       // Update servo status
-      this.getServoAngles && this.getServoAngles();
+      if (this.getServoAngles) {
+        this.getServoAngles();
+      }
 
       // Base Frame
       drawFrame(p);
@@ -1304,6 +1317,9 @@ Stewart.prototype = {
       Hi[1] = Bi[1] + hornLength * cosAlpha * this.sinBeta[i];
       Hi[2] = Bi[2] + hornLength * sinAlpha;
     }
+    if (this.getServoAngles) {
+      this.getServoAngles();
+    }
   },
 
   getServoAngles: function () {
@@ -1315,7 +1331,13 @@ Stewart.prototype = {
       const f = this.f[i];
       const g = this.g[i];
 
-      const denom = Math.sqrt(e * e + f * f);
+      const denom = Math.hypot(e, f);
+      if (!isFinite(denom) || denom === 0) {
+        ret[i] = null;
+        out[i] = true;
+        continue;
+      }
+
       const ratio = g / denom;
       if (!isFinite(ratio) || Math.abs(ratio) > 1) {
         ret[i] = null;
@@ -1323,9 +1345,10 @@ Stewart.prototype = {
         continue;
       }
 
-      const alpha = Math.asin(ratio) - Math.atan2(f, e);
+      const clamped = Math.min(1, Math.max(-1, ratio));
+      const alpha = Math.asin(clamped) - Math.atan2(f, e);
 
-      if (isNaN(alpha) || alpha < this.servoRange[0] || alpha > this.servoRange[1]) {
+      if (isNaN(alpha) || (this.servoRange && (alpha < this.servoRange[0] || alpha > this.servoRange[1]))) {
         ret[i] = null;
         out[i] = true;
       } else {
@@ -1334,6 +1357,7 @@ Stewart.prototype = {
       }
     }
     this.outOfRangeLegs = out;
+    this.servoAngles = ret;
     return ret;
   }
 
