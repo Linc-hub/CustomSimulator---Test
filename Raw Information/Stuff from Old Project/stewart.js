@@ -12,6 +12,9 @@ import Ajv from 'ajv';
 import layoutSchema from '../Stewart_Layout_Schema.json' assert { type: 'json' };
 /* !simple-compilation */
 
+const ajv = new Ajv();
+const validateLayout = ajv.compile(layoutSchema);
+
 const TAU = 2 * Math.PI;
 
 function getHexPlate(r_i, r_o, rot) {
@@ -883,10 +886,8 @@ Stewart.prototype = {
 
   initCustom: function (layout) {
 
-    const ajv = new Ajv();
-    const validate = ajv.compile(layoutSchema);
-    if (!validate(layout)) {
-      throw new Error('Invalid layout: ' + ajv.errorsText(validate.errors));
+    if (!validateLayout(layout)) {
+      throw new Error('Invalid layout: ' + ajv.errorsText(validateLayout.errors));
     }
 
     this.rodLength = layout.rod_length;
@@ -896,29 +897,19 @@ Stewart.prototype = {
       return d * Math.PI / 180;
     });
 
-    this.B = [];
-    this.P = [];
-    this.q = [];
-    this.l = [];
-    this.H = [];
-    this.e = [];
-    this.f = [];
-    this.g = [];
-    this.sinBeta = [];
-    this.cosBeta = [];
+    const len = layout.base_anchors.length;
 
-    for (let i = 0; i < layout.base_anchors.length; i++) {
-      this.B.push(layout.base_anchors[i]);
-      this.P.push(layout.platform_anchors[i]);
-      this.sinBeta.push(Math.sin(layout.beta_angles[i]));
-      this.cosBeta.push(Math.cos(layout.beta_angles[i]));
-      this.q.push([0, 0, 0]);
-      this.l.push([0, 0, 0]);
-      this.H.push([0, 0, 0]);
-      this.e.push(0);
-      this.f.push(0);
-      this.g.push(0);
-    }
+    this.B = layout.base_anchors.map(function (a) { return a.slice(); });
+    this.P = layout.platform_anchors.map(function (a) { return a.slice(); });
+    this.sinBeta = layout.beta_angles.map(function (b) { return Math.sin(b); });
+    this.cosBeta = layout.beta_angles.map(function (b) { return Math.cos(b); });
+
+    this.q = Array.from({ length: len }, () => [0, 0, 0]);
+    this.l = Array.from({ length: len }, () => [0, 0, 0]);
+    this.H = Array.from({ length: len }, () => [0, 0, 0]);
+    this.e = new Array(len).fill(0);
+    this.f = new Array(len).fill(0);
+    this.g = new Array(len).fill(0);
 
     this.T0 = [0, 0, Math.sqrt(this.rodLength * this.rodLength + this.hornLength * this.hornLength
       - Math.pow(this.P[0][0] - this.B[0][0], 2)
