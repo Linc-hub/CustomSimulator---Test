@@ -1336,6 +1336,7 @@ Stewart.prototype = {
       return null;
     }
     ratio = Math.max(-1, Math.min(1, ratio));
+    // α = arcsin(g / √(e² + f²)) - atan2(f, e)
     return Math.asin(ratio) - Math.atan2(f, e);
   },
 
