@@ -65,61 +65,99 @@ export class Optimizer {
     this.generation = 0;
   }
 
-  /** Compute dexterity index (placeholder) */
-  computeDexterity(layout) {
-    if (this.platform.computeJacobian) {
-      const J = this.platform.computeJacobian(layout);
-      const cond = this.conditionNumber(J);
-      return cond ? 1 / cond : 0;
+  /** Compute geometric Jacobian for a given layout */
+  computeJacobian(layout) {
+    const B = layout.B || this.platform.B;
+    const P = layout.P || this.platform.P;
+    if (!B || !P || B.length !== 6 || P.length !== 6) return null;
+    const orient = layout.orientation || this.platform.orientation;
+    const trans = layout.translation || this.platform.translation || [0, 0, 0];
+    const rotate = orient && typeof orient.rotateVector === 'function'
+      ? v => orient.rotateVector(v)
+      : v => v;
+    const J = [];
+    for (let i = 0; i < 6; i++) {
+      const pi = rotate(P[i]);
+      const qi = [pi[0] + trans[0], pi[1] + trans[1], pi[2] + trans[2]];
+      const li = [qi[0] - B[i][0], qi[1] - B[i][1], qi[2] - B[i][2]];
+      const len = Math.sqrt(li[0]*li[0] + li[1]*li[1] + li[2]*li[2]);
+      if (!len) return null;
+      const u = [li[0]/len, li[1]/len, li[2]/len];
+      const cross = [
+        pi[1]*u[2] - pi[2]*u[1],
+        pi[2]*u[0] - pi[0]*u[2],
+        pi[0]*u[1] - pi[1]*u[0]
+      ];
+      J.push([...u, ...cross]);
     }
-    return 0;
+    return J;
   }
 
-  /** Compute stiffness index (placeholder) */
-  computeStiffness(layout) {
-    if (this.platform.computeCompliance) {
-      const C = this.platform.computeCompliance(layout);
-      const trace = C.reduce((sum, row) => sum + row.reduce((s, v) => s + v, 0), 0);
-      return trace ? 1 / trace : 0;
-    }
-    return 0;
-  }
-
-  /** Simple condition number using power iteration */
-  conditionNumber(M) {
-    if (!M || !M.length) return 0;
-    const m = M.length, n = M[0].length;
-    const multiply = (v) => {
-      const r = Array(m).fill(0);
-      for (let i = 0; i < m; i++) {
-        for (let j = 0; j < n; j++) r[i] += M[i][j] * v[j];
+  /** Compute singular value metrics for a matrix */
+  jacobianMetrics(M) {
+    if (!M) return { cond: 0, sigmaMin: 0, sigmaMax: 0 };
+    const transpose = (A) => A[0].map((_, i) => A.map(r => r[i]));
+    const multiplyMat = (A, B) => A.map(r => B[0].map((_, j) => r.reduce((s, v, k) => s + v * B[k][j], 0)));
+    const multiplyVec = (A, v) => A.map(r => r.reduce((s, val, i) => s + val * v[i], 0));
+    const invert = (A) => {
+      const n = A.length;
+      const M = A.map((r, i) => r.concat(Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))));
+      for (let i = 0; i < n; i++) {
+        let pivot = i;
+        for (let j = i + 1; j < n; j++) if (Math.abs(M[j][i]) > Math.abs(M[pivot][i])) pivot = j;
+        if (!M[pivot][i]) return null;
+        if (pivot !== i) [M[i], M[pivot]] = [M[pivot], M[i]];
+        const div = M[i][i];
+        for (let j = 0; j < 2 * n; j++) M[i][j] /= div;
+        for (let j = 0; j < n; j++) if (j !== i) {
+          const factor = M[j][i];
+          for (let k = 0; k < 2 * n; k++) M[j][k] -= factor * M[i][k];
+        }
       }
-      return r;
+      return M.map(r => r.slice(n));
     };
-    const norm = v => Math.sqrt(v.reduce((s, x) => s + x * x, 0));
-    const power = (transpose = false) => {
-      let v = Array(transpose ? m : n).fill(1);
-      for (let k = 0; k < 10; k++) {
-        const w = transpose ? multiplyT(v) : multiply(v);
+    const powerEigen = (A) => {
+      const n = A.length;
+      let v = Array(n).fill(1);
+      const norm = v => Math.sqrt(v.reduce((s, x) => s + x * x, 0));
+      for (let iter = 0; iter < 20; iter++) {
+        const w = multiplyVec(A, v);
         const nrm = norm(w);
         if (!nrm) break;
         v = w.map(x => x / nrm);
       }
-      return v;
+      const Av = multiplyVec(A, v);
+      return v.reduce((s, x, i) => s + x * Av[i], 0);
     };
-    const multiplyT = (v) => {
-      const r = Array(n).fill(0);
-      for (let i = 0; i < m; i++) {
-        for (let j = 0; j < n; j++) r[j] += M[i][j] * v[i];
-      }
-      return r;
-    };
-    const v1 = power(false); const sigmaMax = norm(multiply(v1));
-    const v2 = power(true); const sigmaMin = norm(multiplyT(v2));
-    return sigmaMin ? sigmaMax / sigmaMin : 0;
+    const JT = transpose(M);
+    const JTJ = multiplyMat(JT, M);
+    const lambdaMax = powerEigen(JTJ);
+    let sigmaMax = Math.sqrt(Math.max(lambdaMax, 0));
+    let sigmaMin = 0;
+    const JTJInv = invert(JTJ);
+    if (JTJInv) {
+      const lambdaInvMax = powerEigen(JTJInv);
+      if (lambdaInvMax) sigmaMin = 1 / Math.sqrt(lambdaInvMax);
+    }
+    const cond = sigmaMin ? sigmaMax / sigmaMin : 0;
+    return { cond, sigmaMin, sigmaMax };
   }
 
-  /** Evaluate fitness of layout */
+  /** Compute dexterity index as inverse Jacobian condition number */
+  computeDexterity(layout) {
+    const J = this.computeJacobian(layout);
+    const { cond } = this.jacobianMetrics(J);
+    return cond ? 1 / cond : 0;
+  }
+
+  /** Approximate stiffness as smallest singular value of Jacobian */
+  computeStiffness(layout) {
+    const J = this.computeJacobian(layout);
+    const { sigmaMin } = this.jacobianMetrics(J);
+    return sigmaMin;
+  }
+
+  /** Evaluate objectives of a layout */
   async evaluateLayout(layout) {
     const ws = await computeWorkspace({ ...this.platform, ...layout }, this.ranges, {
       payload: this.payload,
@@ -131,8 +169,14 @@ export class Optimizer {
     const torque = this.computeTorque(layout);
     const dex = this.computeDexterity(layout);
     const stiff = this.computeStiffness(layout);
-    const score = ws.coverage - 0.1 * torque + 0.05 * dex + 0.05 * stiff;
-    return { layout, coverage: ws.coverage, torque, dexterity: dex, stiffness: stiff, score };
+    return {
+      layout,
+      coverage: ws.coverage,
+      torque,
+      dexterity: dex,
+      stiffness: stiff,
+      objectives: [ws.coverage, dex, stiff, -torque]
+    };
   }
 
   computeTorque(layout) {
@@ -143,23 +187,67 @@ export class Optimizer {
     return force * horn;
   }
 
-  /** Compute Pareto front (non dominated set) */
-  computePareto(evals) {
-    const front = [];
-    for (const a of evals) {
-      let dominated = false;
-      for (const b of evals) {
-        if (b === a) continue;
-        if (b.coverage >= a.coverage && b.torque <= a.torque &&
-            b.dexterity >= a.dexterity && b.stiffness >= a.stiffness &&
-            (b.coverage > a.coverage || b.torque < a.torque ||
-             b.dexterity > a.dexterity || b.stiffness > a.stiffness)) {
-          dominated = true; break;
+  /** Check Pareto dominance (maximize all objectives) */
+  dominates(a, b) {
+    const A = a.objectives, B = b.objectives;
+    let better = false;
+    for (let i = 0; i < A.length; i++) {
+      if (A[i] < B[i]) return false;
+      if (A[i] > B[i]) better = true;
+    }
+    return better;
+  }
+
+  /** Non-dominated sorting */
+  sortPopulation(evals) {
+    const fronts = [];
+    const individuals = evals.map(e => ({ ...e, dominationCount: 0, dominates: [], rank: 0, crowding: 0 }));
+    for (let i = 0; i < individuals.length; i++) {
+      for (let j = 0; j < individuals.length; j++) {
+        if (i === j) continue;
+        if (this.dominates(individuals[i], individuals[j])) {
+          individuals[i].dominates.push(individuals[j]);
+        } else if (this.dominates(individuals[j], individuals[i])) {
+          individuals[i].dominationCount++;
         }
       }
-      if (!dominated) front.push(a);
+      if (individuals[i].dominationCount === 0) {
+        individuals[i].rank = 0;
+        (fronts[0] = fronts[0] || []).push(individuals[i]);
+      }
     }
-    return front;
+    let r = 0;
+    while (fronts[r] && fronts[r].length) {
+      const next = [];
+      for (const p of fronts[r]) {
+        for (const q of p.dominates) {
+          q.dominationCount--;
+          if (q.dominationCount === 0) {
+            q.rank = r + 1;
+            next.push(q);
+          }
+        }
+      }
+      r++;
+      if (next.length) fronts[r] = next;
+    }
+    return fronts;
+  }
+
+  /** Crowding distance for a front */
+  crowdingDistance(front) {
+    const m = front[0].objectives.length;
+    for (const p of front) p.crowding = 0;
+    for (let i = 0; i < m; i++) {
+      front.sort((a, b) => a.objectives[i] - b.objectives[i]);
+      front[0].crowding = front[front.length - 1].crowding = Infinity;
+      const min = front[0].objectives[i];
+      const max = front[front.length - 1].objectives[i];
+      if (max === min) continue;
+      for (let j = 1; j < front.length - 1; j++) {
+        front[j].crowding += (front[j + 1].objectives[i] - front[j - 1].objectives[i]) / (max - min);
+      }
+    }
   }
 
   /** Run one generation */
@@ -168,16 +256,18 @@ export class Optimizer {
     for (const p of this.population) {
       evaluated.push(await this.evaluateLayout(p));
     }
-    evaluated.sort((a, b) => b.score - a.score);
-    this.fitness = evaluated;
-    this.pareto = this.computePareto(evaluated);
-    const survivors = evaluated.slice(0, Math.floor(this.populationSize / 2)).map(e => e.layout);
+    const fronts = this.sortPopulation(evaluated);
+    fronts.forEach(f => this.crowdingDistance(f));
+    const sorted = fronts.flat().sort((a, b) => a.rank - b.rank || b.crowding - a.crowding);
+    this.fitness = sorted;
+    this.pareto = fronts[0] || [];
+    const survivorLayouts = sorted.slice(0, Math.floor(this.populationSize / 2)).map(s => s.layout);
     const offspring = [];
-    while (survivors.length + offspring.length < this.populationSize) {
-      const parent = this.cloneLayout(survivors[Math.floor(Math.random() * survivors.length)]);
+    while (survivorLayouts.length + offspring.length < this.populationSize) {
+      const parent = this.cloneLayout(survivorLayouts[Math.floor(Math.random() * survivorLayouts.length)]);
       offspring.push(this.mutate(parent));
     }
-    this.population = survivors.concat(offspring);
+    this.population = survivorLayouts.concat(offspring);
     this.generation++;
   }
 
