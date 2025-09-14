@@ -12,7 +12,13 @@ pub struct Range {
 }
 
 impl Default for Range {
-    fn default() -> Self { Self { min: 0.0, max: 0.0, step: 0.0 } }
+    fn default() -> Self {
+        Self {
+            min: 0.0,
+            max: 0.0,
+            step: 0.0,
+        }
+    }
 }
 
 /// Options controlling workspace computation.
@@ -77,13 +83,27 @@ pub type Ranges = HashMap<String, Range>;
 pub trait Platform {
     fn update(&mut self, pos: Vector3<f64>, orient: quat::Quaternion<f64>);
     fn compute_angles(&self) -> Option<Vec<f64>>;
-    fn servo_range(&self) -> Option<(f64, f64)> { None }
-    fn horn_length(&self) -> Option<f64> { None }
-    fn b_points(&self) -> Option<Vec<Vector3<f64>>> { None }
-    fn h_points(&self) -> Option<Vec<Vector3<f64>>> { None }
-    fn p_points(&self) -> Option<Vec<Vector3<f64>>> { None }
-    fn cos_beta(&self) -> Option<Vec<f64>> { None }
-    fn sin_beta(&self) -> Option<Vec<f64>> { None }
+    fn servo_range(&self) -> Option<(f64, f64)> {
+        None
+    }
+    fn horn_length(&self) -> Option<f64> {
+        None
+    }
+    fn b_points(&self) -> Option<Vec<Vector3<f64>>> {
+        None
+    }
+    fn h_points(&self) -> Option<Vec<Vector3<f64>>> {
+        None
+    }
+    fn p_points(&self) -> Option<Vec<Vector3<f64>>> {
+        None
+    }
+    fn cos_beta(&self) -> Option<Vec<f64>> {
+        None
+    }
+    fn sin_beta(&self) -> Option<Vec<f64>> {
+        None
+    }
     fn orientation(&self) -> quat::Quaternion<f64>;
     fn translation(&self) -> Vector3<f64>;
 }
@@ -98,9 +118,10 @@ fn list(ranges: &Ranges, axis: &str) -> Vec<f64> {
     if let Some(r) = ranges.get(axis) {
         let default_step = if axis.starts_with('r') { 5.0 } else { 5.0 };
         let step = if r.step > 0.0 { r.step } else { default_step };
-        let mut arr = Vec::new();
+        let count = ((r.max - r.min) / step).floor() as usize + 1;
+        let mut arr = Vec::with_capacity(count);
         let mut v = r.min;
-        while v <= r.max + 1e-9 {
+        for _ in 0..count {
             arr.push(v);
             v += step;
         }
@@ -127,7 +148,8 @@ pub fn compute_workspace<P: Platform>(
     options: WorkspaceOptions,
 ) -> WorkspaceResult {
     let leg_force = map_load_to_force(options.payload, options.stroke, options.frequency);
-    let torque_per_force = platform.horn_length().unwrap_or(1.0);
+    let base_horn_len = platform.horn_length();
+    let torque_per_force = base_horn_len.unwrap_or(1.0);
 
     let xs = list(ranges, "x");
     let ys = list(ranges, "y");
@@ -138,8 +160,8 @@ pub fn compute_workspace<P: Platform>(
 
     let total = xs.len() * ys.len() * zs.len() * rxs.len() * rys.len() * rzs.len();
 
-    let mut reachable = Vec::new();
-    let mut failures = Vec::new();
+    let mut reachable = Vec::with_capacity(total);
+    let mut failures = Vec::with_capacity(total);
     let mut violation_counts: HashMap<String, usize> = HashMap::new();
 
     for &x in &xs {
@@ -159,6 +181,11 @@ pub fn compute_workspace<P: Platform>(
                             let mut ok = true;
                             let mut reason = String::new();
                             platform.update(pos, q);
+                            let b_points = platform.b_points();
+                            let h_points = platform.h_points();
+                            let p_points = platform.p_points();
+                            let cos_beta = platform.cos_beta();
+                            let sin_beta = platform.sin_beta();
 
                             match platform.compute_angles() {
                                 Some(angles) => {
@@ -179,11 +206,9 @@ pub fn compute_workspace<P: Platform>(
                             }
 
                             if ok {
-                                if let (Some(b), Some(h), Some(horn_len)) = (
-                                    platform.b_points(),
-                                    platform.h_points(),
-                                    platform.horn_length(),
-                                ) {
+                                if let (Some(b), Some(h), Some(horn_len)) =
+                                    (b_points.as_ref(), h_points.as_ref(), base_horn_len)
+                                {
                                     let tol = f64::max(1e-3 * horn_len, 0.5);
                                     for (bi, hi) in b.iter().zip(h.iter()) {
                                         if dist3(hi, bi) > horn_len + tol {
@@ -196,14 +221,16 @@ pub fn compute_workspace<P: Platform>(
                             }
 
                             if ok && options.ball_joint_clamp {
-                                if let (Some(_b), Some(h), Some(p), Some(cb), Some(sb)) = (
-                                    platform.b_points(),
-                                    platform.h_points(),
-                                    platform.p_points(),
-                                    platform.cos_beta(),
-                                    platform.sin_beta(),
+                                if let (Some(h), Some(p), Some(cb), Some(sb)) = (
+                                    h_points.as_ref(),
+                                    p_points.as_ref(),
+                                    cos_beta.as_ref(),
+                                    sin_beta.as_ref(),
                                 ) {
-                                    let plat_normal = rotate_vector(&platform.orientation(), &Vector3::new(0.0, 0.0, 1.0));
+                                    let plat_normal = rotate_vector(
+                                        &platform.orientation(),
+                                        &Vector3::new(0.0, 0.0, 1.0),
+                                    );
                                     for i in 0..p.len() {
                                         let rod_vec = p[i] - h[i];
                                         let mag = rod_vec.norm();
@@ -236,7 +263,14 @@ pub fn compute_workspace<P: Platform>(
 
                             platform.update(prev_pos, prev_q);
 
-                            let pose = Pose { x, y, z, rx, ry, rz };
+                            let pose = Pose {
+                                x,
+                                y,
+                                z,
+                                rx,
+                                ry,
+                                rz,
+                            };
                             if ok {
                                 reachable.push(pose);
                             } else {
@@ -253,12 +287,21 @@ pub fn compute_workspace<P: Platform>(
         }
     }
 
-    let coverage = if total > 0 { reachable.len() as f64 / total as f64 } else { 0.0 };
+    let coverage = if total > 0 {
+        reachable.len() as f64 / total as f64
+    } else {
+        0.0
+    };
     let violations = violation_counts
         .into_iter()
         .map(|(reason, count)| Violation { reason, count })
         .collect();
-    WorkspaceResult { coverage, violations, reachable, unreachable: failures }
+    WorkspaceResult {
+        coverage,
+        violations,
+        reachable,
+        unreachable: failures,
+    }
 }
 
 #[cfg(test)]
@@ -272,7 +315,10 @@ mod tests {
 
     impl DummyPlatform {
         fn new() -> Self {
-            Self { pos: Vector3::zeros(), q: quat::id() }
+            Self {
+                pos: Vector3::zeros(),
+                q: quat::id(),
+            }
         }
     }
 
@@ -284,20 +330,66 @@ mod tests {
         fn compute_angles(&self) -> Option<Vec<f64>> {
             Some(vec![0.0; 6])
         }
-        fn orientation(&self) -> quat::Quaternion<f64> { self.q }
-        fn translation(&self) -> Vector3<f64> { self.pos }
+        fn orientation(&self) -> quat::Quaternion<f64> {
+            self.q
+        }
+        fn translation(&self) -> Vector3<f64> {
+            self.pos
+        }
     }
 
     #[test]
     fn simple_workspace() {
         let mut platform = DummyPlatform::new();
         let mut ranges = Ranges::new();
-        ranges.insert("x".into(), Range { min: 0.0, max: 0.0, step: 1.0 });
-        ranges.insert("y".into(), Range { min: 0.0, max: 0.0, step: 1.0 });
-        ranges.insert("z".into(), Range { min: 0.0, max: 0.0, step: 1.0 });
-        ranges.insert("rx".into(), Range { min: 0.0, max: 0.0, step: 1.0 });
-        ranges.insert("ry".into(), Range { min: 0.0, max: 0.0, step: 1.0 });
-        ranges.insert("rz".into(), Range { min: 0.0, max: 0.0, step: 1.0 });
+        ranges.insert(
+            "x".into(),
+            Range {
+                min: 0.0,
+                max: 0.0,
+                step: 1.0,
+            },
+        );
+        ranges.insert(
+            "y".into(),
+            Range {
+                min: 0.0,
+                max: 0.0,
+                step: 1.0,
+            },
+        );
+        ranges.insert(
+            "z".into(),
+            Range {
+                min: 0.0,
+                max: 0.0,
+                step: 1.0,
+            },
+        );
+        ranges.insert(
+            "rx".into(),
+            Range {
+                min: 0.0,
+                max: 0.0,
+                step: 1.0,
+            },
+        );
+        ranges.insert(
+            "ry".into(),
+            Range {
+                min: 0.0,
+                max: 0.0,
+                step: 1.0,
+            },
+        );
+        ranges.insert(
+            "rz".into(),
+            Range {
+                min: 0.0,
+                max: 0.0,
+                step: 1.0,
+            },
+        );
         let result = compute_workspace(&mut platform, &ranges, WorkspaceOptions::default());
         assert_eq!(result.coverage, 1.0);
         assert_eq!(result.reachable.len(), 1);
