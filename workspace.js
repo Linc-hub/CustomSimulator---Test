@@ -6,6 +6,7 @@ export async function computeWorkspace(platform, ranges, options = {}) {
     frequency = 0, // Hz
     servoTorqueLimit = Infinity,
     ballJointLimitDeg = 90,
+    ballJointClamp = true,
     onProgress = null
   } = options;
 
@@ -87,28 +88,26 @@ export async function computeWorkspace(platform, ranges, options = {}) {
                     }
                   }
                 }
-                if (ok && platform.B && platform.H && platform.P) {
+                if (ok && ballJointClamp && platform.B && platform.H && platform.P && platform.cosBeta && platform.sinBeta) {
                   const toDeg = (rad) => rad * 180 / Math.PI;
+                  const platNormal = platform.orientation.rotateVector([0, 0, 1]);
                   for (let i = 0; i < platform.P.length; i++) {
-                  const rodVec = [
-                    platform.P[i][0] - platform.H[i][0],
-                    platform.P[i][1] - platform.H[i][1],
-                    platform.P[i][2] - platform.H[i][2]
-                  ];
-                  const magR = Math.sqrt(
-                    rodVec[0] * rodVec[0] +
-                    rodVec[1] * rodVec[1] +
-                    rodVec[2] * rodVec[2]
-                  );
-                  const angle = toDeg(
-                    Math.acos(
-                      Math.min(
-                        Math.max(Math.abs(rodVec[2]) / magR, -1),
-                        1
-                      )
-                    )
-                  );
-                  if (angle > ballJointLimitDeg) { ok = false; reason = 'ball joint'; break; }
+                    const rodVec = [
+                      platform.P[i][0] - platform.H[i][0],
+                      platform.P[i][1] - platform.H[i][1],
+                      platform.P[i][2] - platform.H[i][2]
+                    ];
+                    const magR = Math.sqrt(
+                      rodVec[0] * rodVec[0] +
+                      rodVec[1] * rodVec[1] +
+                      rodVec[2] * rodVec[2]
+                    );
+                    const baseAxis = [platform.cosBeta[i], platform.sinBeta[i], 0];
+                    const cosBase = (rodVec[0] * baseAxis[0] + rodVec[1] * baseAxis[1] + rodVec[2] * baseAxis[2]) / magR;
+                    const cosPlat = (rodVec[0] * platNormal[0] + rodVec[1] * platNormal[1] + rodVec[2] * platNormal[2]) / magR;
+                    const angBase = toDeg(Math.acos(Math.min(Math.max(Math.abs(cosBase), -1), 1)));
+                    const angPlat = toDeg(Math.acos(Math.min(Math.max(Math.abs(cosPlat), -1), 1)));
+                    if (angBase > ballJointLimitDeg || angPlat > ballJointLimitDeg) { ok = false; reason = 'ball joint'; break; }
                   }
                 }
                 if (ok) {
