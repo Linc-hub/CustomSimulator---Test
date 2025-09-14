@@ -365,6 +365,7 @@
         <h3>Safety</h3>
         <div class="lrow"><label for="ballJointLimitSlider">Ball Joint Limit (°)</label><input type="range" id="ballJointLimitSlider" min="10" max="90" value="52"><input class="num" type="number" id="ballJointLimitInput" min="10" max="90" value="52"><button id="ballJointLimitReset">Reset</button></div>
         <div class="vrow">
+            <label><input type="checkbox" id="ballJointClampCheckbox" checked> Enforce Ball Joint Limit</label>
             <label><input type="checkbox" id="ikClampCheckbox" checked> Enforce Valid Kinematics</label>
             <label><input type="checkbox" id="ikClampAnimCheckbox" checked> Enforce on Animations</label>
             <div id="ikStatus" class="status" role="status" aria-live="polite" title="IK: OK">
@@ -616,6 +617,7 @@
 
         let ikClampEnabled = true;
         let ikClampAnimEnabled = true;
+        let ballJointClampEnabled = true;
         let ballJointLimitDeg = 52;
 
         // default increments for manual buttons; also starting values for continuous loop (editable via UI)
@@ -704,24 +706,22 @@
                     }
                 }
                 let ballOK = true;
-                if (platform.B && platform.H && platform.P) {
+                if (ballJointClampEnabled && platform.B && platform.H && platform.P && platform.cosBeta && platform.sinBeta) {
                     const toDeg = rad => rad * 180 / Math.PI;
+                    const platNormal = platform.orientation.rotateVector([0, 0, 1]);
                     for (let i = 0; i < platform.P.length; i++) {
-                    const rv = [
-                        platform.P[i][0] - platform.H[i][0],
-                        platform.P[i][1] - platform.H[i][1],
-                        platform.P[i][2] - platform.H[i][2]
-                    ];
-                    const magR = Math.sqrt(rv[0]**2 + rv[1]**2 + rv[2]**2);
-                    const ang = toDeg(
-                        Math.acos(
-                            Math.min(
-                                Math.max(Math.abs(rv[2]) / magR, -1),
-                                1
-                            )
-                        )
-                    );
-                    if (ang > ballJointLimitDeg) { ballOK = false; break; }
+                        const rv = [
+                            platform.P[i][0] - platform.H[i][0],
+                            platform.P[i][1] - platform.H[i][1],
+                            platform.P[i][2] - platform.H[i][2]
+                        ];
+                        const magR = Math.sqrt(rv[0] ** 2 + rv[1] ** 2 + rv[2] ** 2);
+                        const baseAxis = [platform.cosBeta[i], platform.sinBeta[i], 0];
+                        const cosBase = (rv[0] * baseAxis[0] + rv[1] * baseAxis[1] + rv[2] * baseAxis[2]) / magR;
+                        const cosPlat = (rv[0] * platNormal[0] + rv[1] * platNormal[1] + rv[2] * platNormal[2]) / magR;
+                        const angBase = toDeg(Math.acos(Math.min(Math.max(Math.abs(cosBase), -1), 1)));
+                        const angPlat = toDeg(Math.acos(Math.min(Math.max(Math.abs(cosPlat), -1), 1)));
+                        if (angBase > ballJointLimitDeg || angPlat > ballJointLimitDeg) { ballOK = false; break; }
                     }
                 }
                 // restore
@@ -1215,6 +1215,7 @@ Stewart.prototype.initAyva = function (opts) {
         document.getElementById('viewZReset').onclick = () => setViewZ(0);
 
         // ---------- Safety toggles ----------
+        document.getElementById("ballJointClampCheckbox").onchange = e => { ballJointClampEnabled = e.target.checked; };
         document.getElementById("ikClampCheckbox").onchange = e => { ikClampEnabled = e.target.checked; };
         document.getElementById("ikClampAnimCheckbox").onchange = e => { ikClampAnimEnabled = e.target.checked; };
 
@@ -1770,6 +1771,7 @@ Stewart.prototype.initAyva = function (opts) {
                             frequency: 1,
                             servoTorqueLimit: window.platform.servoTorqueLimit || Infinity,
                             ballJointLimitDeg,
+                            ballJointClamp: ballJointClampEnabled,
                             onProgress: (p) => { coverageEl.textContent = (p * 100).toFixed(1) + '%'; }
                         });
                         coverageEl.textContent = (lastResult.coverage * 100).toFixed(1) + '%';
@@ -1822,7 +1824,7 @@ Stewart.prototype.initAyva = function (opts) {
                 ry: { min: parseFloat(document.getElementById('optRyMin').value), max: parseFloat(document.getElementById('optRyMax').value) },
                 rz: { min: parseFloat(document.getElementById('optRzMin').value), max: parseFloat(document.getElementById('optRzMax').value) },
             };
-            currentOptimizer = new Optimizer(window.platform, { generations: gens, ranges, ballJointLimitDeg });
+            currentOptimizer = new Optimizer(window.platform, { generations: gens, ranges, ballJointLimitDeg, ballJointClamp: ballJointClampEnabled });
             const update = () => {
                 optStatus.textContent = `Generation ${currentOptimizer.generation}/${currentOptimizer.generations}`;
                 if (currentOptimizer.running) requestAnimationFrame(update);

@@ -34,7 +34,7 @@ This is general for any layout.
 - Workspace sweeps: iterate over X, Y, Z, Rx, Ry, Rz ranges.
 - Workspace coverage metrics: % of reachable poses vs. target.
 - Performance simulation: payload mass, stroke, frequency → torque & RPM.
-- Ball-joint angle limits, servo range limits, rod collision checks.
+ - Ball-joint angle limits (toggleable), servo range limits, rod collision checks.
 
 ---
 

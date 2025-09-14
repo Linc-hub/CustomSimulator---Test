@@ -7,16 +7,17 @@ import { computeWorkspace } from './workspace.js';
  */
 export class Optimizer {
   constructor(platform, {
-    populationSize = 20,
-    generations = 50,
-    ranges = {},
-    payload = 0,
-    stroke = 0,
-    frequency = 0,
-    mutationRate = 0.2,
-    algorithm = 'genetic',
-    ballJointLimitDeg = 90
-  } = {}) {
+      populationSize = 20,
+      generations = 50,
+      ranges = {},
+      payload = 0,
+      stroke = 0,
+      frequency = 0,
+      mutationRate = 0.2,
+      algorithm = 'genetic',
+      ballJointLimitDeg = 90,
+      ballJointClamp = true
+    } = {}) {
     this.platform = platform;
     this.populationSize = populationSize;
     this.generations = generations;
@@ -25,8 +26,9 @@ export class Optimizer {
     this.stroke = stroke;
     this.frequency = frequency;
     this.mutationRate = mutationRate;
-    this.algorithm = algorithm;
-    this.ballJointLimitDeg = ballJointLimitDeg;
+      this.algorithm = algorithm;
+      this.ballJointLimitDeg = ballJointLimitDeg;
+      this.ballJointClamp = ballJointClamp;
     this.population = [];
     this.fitness = [];
     this.generation = 0;
@@ -123,7 +125,8 @@ export class Optimizer {
       payload: this.payload,
       stroke: this.stroke,
       frequency: this.frequency,
-      ballJointLimitDeg: this.ballJointLimitDeg
+      ballJointLimitDeg: this.ballJointLimitDeg,
+      ballJointClamp: this.ballJointClamp
     });
     const torque = this.computeTorque(layout);
     const dex = this.computeDexterity(layout);
