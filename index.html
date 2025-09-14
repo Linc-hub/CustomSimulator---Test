@@ -645,8 +645,14 @@
         let ayvaLayoutCache = null;
         async function loadAyvaLayout() {
             if (!ayvaLayoutCache) {
-                const resp = await fetch('AYVA_Optimized_Layout.json');
-                ayvaLayoutCache = await resp.json();
+                try {
+                    const resp = await fetch('Raw%20Information/linear_layout.json');
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    ayvaLayoutCache = await resp.json();
+                } catch (err) {
+                    console.error('Failed to load AYVA layout:', err);
+                    return null;
+                }
             }
             return ayvaLayoutCache;
         }
@@ -1038,7 +1044,11 @@ Stewart.prototype.initAyva = function (opts) {
             platform = new Stewart();
             if (document.getElementById("linearLayoutCheckbox") && document.getElementById("linearLayoutCheckbox").checked) {
                 const layout = await loadAyvaLayout();
-                platform.initCustom(layout);
+                if (layout) {
+                    platform.initCustom(layout);
+                } else {
+                    platform.initHexagonal(opts);
+                }
             } else {
                 platform.initHexagonal(opts);
             }
