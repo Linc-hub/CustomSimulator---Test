@@ -701,21 +701,21 @@
                 if (platform.B && platform.H && platform.P) {
                     const toDeg = rad => rad * 180 / Math.PI;
                     for (let i = 0; i < platform.P.length; i++) {
-                        const hv = [
-                            platform.H[i][0] - platform.B[i][0],
-                            platform.H[i][1] - platform.B[i][1],
-                            platform.H[i][2] - platform.B[i][2]
-                        ];
-                        const rv = [
-                            platform.P[i][0] - platform.H[i][0],
-                            platform.P[i][1] - platform.H[i][1],
-                            platform.P[i][2] - platform.H[i][2]
-                        ];
-                        const dot = hv[0]*rv[0] + hv[1]*rv[1] + hv[2]*rv[2];
-                        const magH = Math.sqrt(hv[0]**2 + hv[1]**2 + hv[2]**2);
-                        const magR = Math.sqrt(rv[0]**2 + rv[1]**2 + rv[2]**2);
-                        const ang = toDeg(Math.acos(Math.min(Math.max(dot/(magH*magR), -1), 1)));
-                        if (ang > ballJointLimitDeg) { ballOK = false; break; }
+                    const rv = [
+                        platform.P[i][0] - platform.H[i][0],
+                        platform.P[i][1] - platform.H[i][1],
+                        platform.P[i][2] - platform.H[i][2]
+                    ];
+                    const magR = Math.sqrt(rv[0]**2 + rv[1]**2 + rv[2]**2);
+                    const ang = toDeg(
+                        Math.acos(
+                            Math.min(
+                                Math.max(Math.abs(rv[2]) / magR, -1),
+                                1
+                            )
+                        )
+                    );
+                    if (ang > ballJointLimitDeg) { ballOK = false; break; }
                     }
                 }
                 // restore
