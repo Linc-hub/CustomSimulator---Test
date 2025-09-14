@@ -14,7 +14,8 @@ export class Optimizer {
     stroke = 0,
     frequency = 0,
     mutationRate = 0.2,
-    algorithm = 'genetic'
+    algorithm = 'genetic',
+    ballJointLimitDeg = 90
   } = {}) {
     this.platform = platform;
     this.populationSize = populationSize;
@@ -25,6 +26,7 @@ export class Optimizer {
     this.frequency = frequency;
     this.mutationRate = mutationRate;
     this.algorithm = algorithm;
+    this.ballJointLimitDeg = ballJointLimitDeg;
     this.population = [];
     this.fitness = [];
     this.generation = 0;
@@ -116,11 +118,12 @@ export class Optimizer {
   }
 
   /** Evaluate fitness of layout */
-  evaluateLayout(layout) {
-    const ws = computeWorkspace({ ...this.platform, ...layout }, this.ranges, {
+  async evaluateLayout(layout) {
+    const ws = await computeWorkspace({ ...this.platform, ...layout }, this.ranges, {
       payload: this.payload,
       stroke: this.stroke,
-      frequency: this.frequency
+      frequency: this.frequency,
+      ballJointLimitDeg: this.ballJointLimitDeg
     });
     const torque = this.computeTorque(layout);
     const dex = this.computeDexterity(layout);
@@ -157,8 +160,11 @@ export class Optimizer {
   }
 
   /** Run one generation */
-  step() {
-    const evaluated = this.population.map(p => this.evaluateLayout(p));
+  async step() {
+    const evaluated = [];
+    for (const p of this.population) {
+      evaluated.push(await this.evaluateLayout(p));
+    }
     evaluated.sort((a, b) => b.score - a.score);
     this.fitness = evaluated;
     this.pareto = this.computePareto(evaluated);
@@ -192,10 +198,10 @@ export class Optimizer {
     if (this.running) return;
     this.initialize();
     this.running = true;
-    const run = () => {
+    const run = async () => {
       if (!this.running || this.generation >= this.generations) {
         this.running = false; if (callback) callback(this); return; }
-      this.step();
+      await this.step();
       setTimeout(run, 0);
     };
     run();
