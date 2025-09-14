@@ -37,9 +37,11 @@ export async function computeWorkspace(platform, ranges, options = {}) {
   const violationCounts = {};
 
   const list = (axis) => {
-    const { min = 0, max = 0, step = 1 } = ranges[axis] || {};
+    const { min = 0, max = 0, step } = ranges[axis] || {};
+    const defaultStep = axis.startsWith('r') ? 5 : 5; // 5° or 5 mm
+    const s = step > 0 ? step : defaultStep;
     const arr = [];
-    for (let v = min; v <= max + 1e-9; v += step) arr.push(v);
+    for (let v = min; v <= max + 1e-9; v += s) arr.push(v);
     return arr;
   };
 
