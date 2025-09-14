@@ -90,21 +90,25 @@ export async function computeWorkspace(platform, ranges, options = {}) {
                 if (ok && platform.B && platform.H && platform.P) {
                   const toDeg = (rad) => rad * 180 / Math.PI;
                   for (let i = 0; i < platform.P.length; i++) {
-                    const hornVec = [
-                      platform.H[i][0] - platform.B[i][0],
-                      platform.H[i][1] - platform.B[i][1],
-                      platform.H[i][2] - platform.B[i][2]
-                    ];
-                    const rodVec = [
-                      platform.P[i][0] - platform.H[i][0],
-                      platform.P[i][1] - platform.H[i][1],
-                      platform.P[i][2] - platform.H[i][2]
-                    ];
-                    const dot = hornVec[0] * rodVec[0] + hornVec[1] * rodVec[1] + hornVec[2] * rodVec[2];
-                    const magH = Math.sqrt(hornVec[0] ** 2 + hornVec[1] ** 2 + hornVec[2] ** 2);
-                    const magR = Math.sqrt(rodVec[0] ** 2 + rodVec[1] ** 2 + rodVec[2] ** 2);
-                    const angle = toDeg(Math.acos(Math.min(Math.max(dot / (magH * magR), -1), 1)));
-                    if (angle > ballJointLimitDeg) { ok = false; reason = 'ball joint'; break; }
+                  const rodVec = [
+                    platform.P[i][0] - platform.H[i][0],
+                    platform.P[i][1] - platform.H[i][1],
+                    platform.P[i][2] - platform.H[i][2]
+                  ];
+                  const magR = Math.sqrt(
+                    rodVec[0] * rodVec[0] +
+                    rodVec[1] * rodVec[1] +
+                    rodVec[2] * rodVec[2]
+                  );
+                  const angle = toDeg(
+                    Math.acos(
+                      Math.min(
+                        Math.max(Math.abs(rodVec[2]) / magR, -1),
+                        1
+                      )
+                    )
+                  );
+                  if (angle > ballJointLimitDeg) { ok = false; reason = 'ball joint'; break; }
                   }
                 }
                 if (ok) {
