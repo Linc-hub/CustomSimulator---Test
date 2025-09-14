@@ -1,11 +1,12 @@
 // Module to sweep workspace of a Stewart platform
-export function computeWorkspace(platform, ranges, options = {}) {
+export async function computeWorkspace(platform, ranges, options = {}) {
   const {
     payload = 0, // kg
     stroke = 0, // mm
     frequency = 0, // Hz
     servoTorqueLimit = Infinity,
-    ballJointLimitDeg = 90
+    ballJointLimitDeg = 90,
+    onProgress = null
   } = options;
 
   const QuaternionObj = (typeof Quaternion !== 'undefined') ? Quaternion : options.Quaternion;
@@ -44,14 +45,16 @@ export function computeWorkspace(platform, ranges, options = {}) {
   const xs = list('x'), ys = list('y'), zs = list('z');
   const rxs = list('rx'), rys = list('ry'), rzs = list('rz');
 
-  let total = 0;
+  const total = xs.length * ys.length * zs.length * rxs.length * rys.length * rzs.length;
+  let processed = 0;
+
   for (const x of xs) {
     for (const y of ys) {
       for (const z of zs) {
         for (const rx of rxs) {
           for (const ry of rys) {
             for (const rz of rzs) {
-              total++;
+              processed++;
               const pos = [x, y, z];
               const q = QuaternionObj.fromEuler(
                 rx * Math.PI / 180,
@@ -118,10 +121,16 @@ export function computeWorkspace(platform, ranges, options = {}) {
               const pose = { x, y, z, rx, ry, rz };
               if (ok) {
                 reachable.push(pose);
-                console.log('reachable', pose);
               } else {
                 failures.push({ pose, reason });
                 violationCounts[reason] = (violationCounts[reason] || 0) + 1;
+              }
+
+              if (onProgress && processed % 50 === 0) {
+                try { onProgress(processed / total); } catch (_) { }
+              }
+              if (processed % 200 === 0) {
+                await new Promise(r => setTimeout(r, 0));
               }
             }
           }
@@ -129,6 +138,8 @@ export function computeWorkspace(platform, ranges, options = {}) {
       }
     }
   }
+
+  if (onProgress) { try { onProgress(1); } catch (_) { } }
 
   const coverage = total ? reachable.length / total : 0;
   const violations = Object.entries(violationCounts).map(([reason, count]) => ({ reason, count }));
