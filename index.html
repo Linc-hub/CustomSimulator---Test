@@ -327,7 +327,7 @@
         </div>
         
         <div class="vrow">
-            <label><input type="checkbox" id="ayvaLayoutCheckbox"> Use AYVA Layout</label>
+            <label><input type="checkbox" id="linearLayoutCheckbox"> Use linear layout</label>
         </div>
             <div class="lrow"><label for="shaftDistanceSlider">Shaft Distance (mm)</label><input type="range"
                 id="shaftDistanceSlider" min="0" max="120" value="30"><input class="num" type="number"
@@ -1012,7 +1012,7 @@ Stewart.prototype.initAyva = function (opts) {
         // ---------- Platform & Animator ----------
         async function rebuildPlatform() {
             platform = new Stewart();
-            if (document.getElementById("ayvaLayoutCheckbox") && document.getElementById("ayvaLayoutCheckbox").checked) {
+            if (document.getElementById("linearLayoutCheckbox") && document.getElementById("linearLayoutCheckbox").checked) {
                 const layout = await loadAyvaLayout();
                 platform.initCustom(layout);
             } else {
