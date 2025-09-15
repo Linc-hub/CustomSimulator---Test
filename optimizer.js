@@ -298,9 +298,16 @@ export class Optimizer {
     this.running = true;
     const run = async () => {
       if (!this.running || this.generation >= this.generations) {
-        this.running = false; if (callback) callback(this); return; }
-      await this.step();
-      setTimeout(run, 0);
+        this.running = false; if (callback) callback(null, this); return; }
+      try {
+        await this.step();
+        setTimeout(run, 0);
+      } catch (err) {
+        this.running = false;
+        console.error(err);
+        this.lastError = err;
+        if (callback) callback(err, this); else throw err;
+      }
     };
     run();
   }
