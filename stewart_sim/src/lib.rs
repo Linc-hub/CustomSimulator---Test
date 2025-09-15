@@ -9,6 +9,8 @@ pub use optimizer::Optimizer;
 use wasm_bindgen::prelude::*;
 #[cfg(feature = "wasm")]
 use serde::Serialize;
+#[cfg(feature = "wasm")]
+use serde_wasm_bindgen::to_value;
 
 #[cfg(feature = "wasm")]
 use nalgebra::Vector3;
@@ -82,5 +84,5 @@ pub fn optimize_demo() -> JsValue {
     #[derive(Serialize)]
     struct Result { layout: Layout, coverage: f64 }
     let result = Result { layout: best_layout, coverage: ws.coverage };
-    JsValue::from_serde(&result).unwrap()
+    to_value(&result).unwrap()
 }

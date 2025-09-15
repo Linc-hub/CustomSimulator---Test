@@ -3656,6 +3656,7 @@ dependencies = [
  "quaternion",
  "rand",
  "serde",
+ "serde-wasm-bindgen",
  "serde_json",
  "three-d",
  "wasm-bindgen",
