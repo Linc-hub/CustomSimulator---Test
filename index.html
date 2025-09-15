@@ -1799,83 +1799,27 @@ Stewart.prototype.initAyva = function (opts) {
                 });
             });
         };
-        // Optimization module lazy loader and UI hooks
-        let optimizerModule = null;
-        let currentOptimizer = null;
-        function ensureOptimizerModule() {
-            return optimizerModule ? Promise.resolve(optimizerModule) :
-                import('./optimizer.js').then(m => { optimizerModule = m; return m; });
+        // Optimization using Rust + WebAssembly
+        let wasmOptimizer = null;
+        async function ensureWasmOptimizer() {
+            if (wasmOptimizer) return wasmOptimizer;
+            const mod = await import('./wasm_optimizer.js');
+            wasmOptimizer = mod.optimize;
+            return wasmOptimizer;
         }
         const runOptBtn = document.getElementById('runOptimization');
-        const exportBestBtn = document.getElementById('exportBestLayout');
         const optStatus = document.getElementById('optStatus');
 
         runOptBtn?.addEventListener('click', async () => {
-            if (!window.platform) return;
-            optStatus.textContent = 'Starting...';
+            optStatus.textContent = 'Running...';
             try {
-            const { Optimizer } = await ensureOptimizerModule();
-            const gens = parseInt(document.getElementById('optGenerations').value, 10) || 10;
-            const ranges = {
-                x: {
-                    min: parseFloat(document.getElementById('optXMin').value),
-                    max: parseFloat(document.getElementById('optXMax').value),
-                    step: Math.abs(parseFloat(document.getElementById('optXStep').value)) || 5
-                },
-                y: {
-                    min: parseFloat(document.getElementById('optYMin').value),
-                    max: parseFloat(document.getElementById('optYMax').value),
-                    step: Math.abs(parseFloat(document.getElementById('optYStep').value)) || 5
-                },
-                z: {
-                    min: parseFloat(document.getElementById('optZMin').value),
-                    max: parseFloat(document.getElementById('optZMax').value),
-                    step: Math.abs(parseFloat(document.getElementById('optZStep').value)) || 5
-                },
-                rx: {
-                    min: parseFloat(document.getElementById('optRxMin').value),
-                    max: parseFloat(document.getElementById('optRxMax').value),
-                    step: Math.abs(parseFloat(document.getElementById('optRxStep').value)) || 5
-                },
-                ry: {
-                    min: parseFloat(document.getElementById('optRyMin').value),
-                    max: parseFloat(document.getElementById('optRyMax').value),
-                    step: Math.abs(parseFloat(document.getElementById('optRyStep').value)) || 5
-                },
-                rz: {
-                    min: parseFloat(document.getElementById('optRzMin').value),
-                    max: parseFloat(document.getElementById('optRzMax').value),
-                    step: Math.abs(parseFloat(document.getElementById('optRzStep').value)) || 5
-                },
-            };
-            currentOptimizer = new Optimizer(window.platform, { generations: gens, ranges, ballJointLimitDeg, ballJointClamp: ballJointClampEnabled });
-            const update = () => {
-                optStatus.textContent = `Generation ${currentOptimizer.generation}/${currentOptimizer.generations}`;
-                if (currentOptimizer.running) requestAnimationFrame(update);
-            };
-            currentOptimizer.start((err) => {
-                if (err) {
-                    console.error(err);
-                    optStatus.textContent = 'Error';
-                    return;
-                }
-                const best = currentOptimizer.fitness[0];
-                optStatus.textContent = `Done. Coverage ${(best.coverage * 100).toFixed(1)}%`;
-            });
-            update();
+                const optimize = await ensureWasmOptimizer();
+                const result = await optimize();
+                optStatus.textContent = `Done. Coverage ${(result.coverage * 100).toFixed(1)}%`;
             } catch (err) {
                 console.error(err);
                 optStatus.textContent = 'Error';
             }
-        });
-
-        exportBestBtn?.addEventListener('click', async () => {
-            if (!currentOptimizer) {
-                optStatus.textContent = 'Run optimization first';
-                return;
-            }
-            await ensureOptimizerModule();
-            currentOptimizer.exportBest();
         });
     </script>
 </body>

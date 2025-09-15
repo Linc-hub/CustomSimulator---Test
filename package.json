@@ -7,7 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "electron .",
     "dist": "electron-builder --win",
-    "build:wasm": "RUSTFLAGS='--cfg getrandom_backend=\"wasm_js\"' wasm-pack build stewart_sim --release --target nodejs --features wasm -- --locked"
+    "build:wasm": "RUSTFLAGS='--cfg getrandom_backend=\"wasm_js\"' wasm-pack build stewart_sim --release --target nodejs --features wasm -- --locked",
+    "optimize:demo": "node -e \"(async () => { const m = await import('./wasm_optimizer.js'); console.log(await m.optimize()); })();\""
   },
   "keywords": [],
   "author": "",

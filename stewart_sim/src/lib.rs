@@ -7,6 +7,8 @@ pub use optimizer::Optimizer;
 
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
+#[cfg(feature = "wasm")]
+use serde::Serialize;
 
 #[cfg(feature = "wasm")]
 use nalgebra::Vector3;
@@ -61,6 +63,7 @@ impl ConfigurablePlatform for WasmPlatform {
 #[cfg(feature = "wasm")]
 #[wasm_bindgen]
 pub fn optimize_demo() -> JsValue {
+    console_error_panic_hook::set_once();
     let mut ranges = Ranges::new();
     ranges.insert("x".into(), Range { min: 0.0, max: 0.0, step: 1.0 });
     ranges.insert("y".into(), Range { min: 0.0, max: 0.0, step: 1.0 });
@@ -71,8 +74,13 @@ pub fn optimize_demo() -> JsValue {
 
     let options = WorkspaceOptions::default();
     let platform = WasmPlatform::new();
-    let mut opt = Optimizer::new(platform, ranges, options, 4, 1, 0.1);
+    let mut opt = Optimizer::new(platform, ranges, options.clone(), 4, 1, 0.1);
     opt.initialize();
-    let best = opt.step();
-    JsValue::from_serde(&best).unwrap()
+    let best_layout = opt.step();
+    opt.platform.apply_layout(&best_layout);
+    let ws = compute_workspace(&mut opt.platform, &opt.ranges, options);
+    #[derive(Serialize)]
+    struct Result { layout: Layout, coverage: f64 }
+    let result = Result { layout: best_layout, coverage: ws.coverage };
+    JsValue::from_serde(&result).unwrap()
 }
