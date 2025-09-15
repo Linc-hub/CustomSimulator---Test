@@ -1733,7 +1733,7 @@ Stewart.prototype.initLinear = function (opts) {
         let currentOptimizer = null;
         function ensureOptimizerModule() {
             return optimizerModule ? Promise.resolve(optimizerModule) :
-                import('../optimizer.js').then(m => { optimizerModule = m; return m; });
+                import('../wasm_optimizer.js').then(m => { optimizerModule = m; return m; });
         }
         const runOptBtn = document.getElementById('runOptimization');
         const exportBestBtn = document.getElementById('exportBestLayout');

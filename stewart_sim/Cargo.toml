@@ -32,3 +32,6 @@ harness = false
 [features]
 default = []
 wasm = ["getrandom", "wasm-bindgen", "console_error_panic_hook"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
