@@ -3638,12 +3638,14 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "eframe",
+ "getrandom 0.2.16",
  "nalgebra",
  "quaternion",
  "rand",
  "serde",
  "serde_json",
  "three-d",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -4080,6 +4082,8 @@ dependencies = [
  "cfg-if",
  "once_cell",
  "rustversion",
+ "serde",
+ "serde_json",
  "wasm-bindgen-macro",
  "wasm-bindgen-shared",
 ]
