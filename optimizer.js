@@ -164,6 +164,8 @@ export class Optimizer {
       this.platform,
       layout
     );
+    const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const evalStart = now();
     const ws = await computeWorkspace(platformClone, this.ranges, {
       payload: this.payload,
       stroke: this.stroke,
@@ -171,6 +173,13 @@ export class Optimizer {
       ballJointLimitDeg: this.ballJointLimitDeg,
       ballJointClamp: this.ballJointClamp
     });
+    const evalTime = now() - evalStart;
+    if (isNaN(ws.coverage)) {
+      console.warn('Workspace evaluation returned invalid coverage', ws);
+    }
+    if (this.debug) {
+      console.log(`Layout evaluated in ${evalTime.toFixed(2)}ms, coverage ${ws.coverage}`);
+    }
     const torque = this.computeTorque(layout);
     const dex = this.computeDexterity(layout);
     const stiff = this.computeStiffness(layout);
@@ -257,6 +266,9 @@ export class Optimizer {
 
   /** Run one generation */
   async step() {
+    const gen = this.generation;
+    console.log(`Starting generation ${gen}`);
+    console.time(`generation-${gen}`);
     const evaluated = [];
     for (const p of this.population) {
       evaluated.push(await this.evaluateLayout(p));
@@ -273,6 +285,8 @@ export class Optimizer {
       offspring.push(this.mutate(parent));
     }
     this.population = survivorLayouts.concat(offspring);
+    console.timeEnd(`generation-${gen}`);
+    console.log(`Completed generation ${gen} with best coverage ${(this.fitness[0]?.coverage * 100).toFixed(1)}%`);
     this.generation++;
   }
 
@@ -296,15 +310,20 @@ export class Optimizer {
     if (this.running) return;
     this.initialize();
     this.running = true;
+    console.log(`Optimizer started: ${this.generations} generations, population ${this.populationSize}`);
     const run = async () => {
       if (!this.running || this.generation >= this.generations) {
-        this.running = false; if (callback) callback(null, this); return; }
+        this.running = false;
+        console.log('Optimizer finished');
+        if (callback) callback(null, this);
+        return;
+      }
       try {
         await this.step();
         setTimeout(run, 0);
       } catch (err) {
         this.running = false;
-        console.error(err);
+        console.error('Optimizer error', err);
         this.lastError = err;
         if (callback) callback(err, this); else throw err;
       }
