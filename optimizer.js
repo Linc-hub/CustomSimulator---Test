@@ -159,7 +159,12 @@ export class Optimizer {
 
   /** Evaluate objectives of a layout */
   async evaluateLayout(layout) {
-    const ws = await computeWorkspace({ ...this.platform, ...layout }, this.ranges, {
+    const platformClone = Object.assign(
+      Object.create(Object.getPrototypeOf(this.platform)),
+      this.platform,
+      layout
+    );
+    const ws = await computeWorkspace(platformClone, this.ranges, {
       payload: this.payload,
       stroke: this.stroke,
       frequency: this.frequency,
