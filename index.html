@@ -1853,7 +1853,12 @@ Stewart.prototype.initAyva = function (opts) {
                 optStatus.textContent = `Generation ${currentOptimizer.generation}/${currentOptimizer.generations}`;
                 if (currentOptimizer.running) requestAnimationFrame(update);
             };
-            currentOptimizer.start(() => {
+            currentOptimizer.start((err) => {
+                if (err) {
+                    console.error(err);
+                    optStatus.textContent = 'Error';
+                    return;
+                }
                 const best = currentOptimizer.fitness[0];
                 optStatus.textContent = `Done. Coverage ${(best.coverage * 100).toFixed(1)}%`;
             });
