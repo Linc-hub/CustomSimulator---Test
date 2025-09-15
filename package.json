@@ -7,7 +7,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "electron .",
     "dist": "electron-builder --win",
-    "build:wasm": "RUSTFLAGS='--cfg getrandom_backend=\"wasm_js\"' wasm-pack build stewart_sim --release --target nodejs --features wasm"
+    "build:wasm": "RUSTFLAGS='--cfg getrandom_backend=\"wasm_js\"' wasm-pack build stewart_sim --release --target nodejs --features wasm -- --locked"
   },
   "keywords": [],
   "author": "",
