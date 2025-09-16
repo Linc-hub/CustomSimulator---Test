@@ -1,4 +1,4 @@
-use rand::Rng;
+use fastrand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::workspace::{compute_workspace, Platform, Ranges, WorkspaceOptions, WorkspaceResult};
@@ -24,7 +24,7 @@ pub struct Optimizer<P: ConfigurablePlatform> {
     pub generations: usize,
     pub mutation_rate: f64,
     pub population: Vec<Layout>,
-    rng: rand::rngs::ThreadRng,
+    rng: Rng,
 }
 
 impl<P: ConfigurablePlatform> Optimizer<P> {
@@ -37,12 +37,12 @@ impl<P: ConfigurablePlatform> Optimizer<P> {
             generations,
             mutation_rate,
             population: Vec::new(),
-            rng: rand::rng(),
+            rng: Rng::new(),
         }
     }
 
     fn randomize_layout(&mut self, base: &Layout) -> Layout {
-        let mut rand_val = |v: f64| v + (self.rng.random_range(0.0..1.0) * 2.0 - 1.0) * 5.0;
+        let mut rand_val = |v: f64| v + (self.rng.f64() * 2.0 - 1.0) * 5.0;
         Layout { horn_length: rand_val(base.horn_length), rod_length: rand_val(base.rod_length) }
     }
 
@@ -58,8 +58,8 @@ impl<P: ConfigurablePlatform> Optimizer<P> {
 
     fn mutate(&mut self, layout: &mut Layout) {
         let mut rand_val = |v: &mut f64| {
-            if self.rng.random_range(0.0..1.0) < self.mutation_rate {
-                *v += (self.rng.random_range(0.0..1.0) * 2.0 - 1.0) * 5.0;
+            if self.rng.f64() < self.mutation_rate {
+                *v += (self.rng.f64() * 2.0 - 1.0) * 5.0;
             }
         };
         rand_val(&mut layout.horn_length);
@@ -81,7 +81,7 @@ impl<P: ConfigurablePlatform> Optimizer<P> {
             .collect();
         let mut new_pop = survivors.clone();
         while new_pop.len() < self.population_size {
-            let mut child = survivors[self.rng.random_range(0..survivors.len())].clone();
+            let mut child = survivors[self.rng.usize(0..survivors.len())].clone();
             self.mutate(&mut child);
             new_pop.push(child);
         }
