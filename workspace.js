@@ -7,12 +7,25 @@ export async function computeWorkspace(platform, ranges, options = {}) {
     servoTorqueLimit = Infinity,
     ballJointLimitDeg = 90,
     ballJointClamp = true,
-    onProgress = null
+    onProgress = null,
+    useWasm = true
   } = options;
 
   const QuaternionObj = (typeof Quaternion !== 'undefined') ? Quaternion : options.Quaternion;
   if (!platform || !QuaternionObj) {
     throw new Error('platform and Quaternion are required');
+  }
+
+  if (useWasm) {
+    const wasmResult = await tryComputeWorkspaceWasm(
+      platform,
+      ranges,
+      { payload, stroke, frequency, servoTorqueLimit, ballJointLimitDeg, ballJointClamp },
+      onProgress
+    );
+    if (wasmResult) {
+      return wasmResult;
+    }
   }
 
   const dist3 = (a, b) => {
@@ -175,4 +188,259 @@ export function exportResults(result, format = 'json') {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+let workspaceWasmModulePromise = null;
+let workspaceWasmModuleLoadError = null;
+
+async function tryComputeWorkspaceWasm(platform, ranges, wasmOptions, onProgress) {
+  const wasmModule = await loadWorkspaceWasmModule();
+  if (!wasmModule || typeof wasmModule.compute_workspace !== 'function') {
+    return null;
+  }
+
+  const wasmPlatform = preparePlatformForWasm(platform);
+  if (!wasmPlatform) {
+    const detail = formatWasmPlatformIssues(preparePlatformForWasm.lastErrors);
+    console.warn(`Workspace wasm path skipped: invalid platform data${detail}`);
+    return null;
+  }
+
+  const preparedRanges = prepareRangesForWasm(ranges);
+  const preparedOptions = prepareWorkspaceOptionsForWasm(wasmOptions);
+
+  try {
+    const result = wasmModule.compute_workspace(wasmPlatform, preparedRanges, preparedOptions);
+    const resolved = result && typeof result.then === 'function' ? await result : result;
+    if (resolved && onProgress) {
+      try { onProgress(1); } catch (_) { }
+    }
+    return resolved || null;
+  } catch (err) {
+    console.warn('WASM workspace computation failed, falling back to JS', err);
+    return null;
+  }
+}
+
+async function loadWorkspaceWasmModule() {
+  if (workspaceWasmModuleLoadError) {
+    return null;
+  }
+  if (!workspaceWasmModulePromise) {
+    workspaceWasmModulePromise = import('./stewart_sim/pkg/stewart_sim.js').catch(err => {
+      workspaceWasmModuleLoadError = err;
+      return null;
+    });
+  }
+  const module = await workspaceWasmModulePromise;
+  if (!module && !workspaceWasmModuleLoadError) {
+    workspaceWasmModuleLoadError = new Error('Unknown workspace wasm load failure');
+  }
+  return module || null;
+}
+
+function prepareWorkspaceOptionsForWasm(options) {
+  const opts = options || {};
+  const servoLimit = typeof opts.servoTorqueLimit === 'number'
+    ? (Number.isFinite(opts.servoTorqueLimit) ? opts.servoTorqueLimit : Number.MAX_VALUE)
+    : Number.MAX_VALUE;
+  return {
+    payload: isFiniteNumber(opts.payload) ? opts.payload : 0,
+    stroke: isFiniteNumber(opts.stroke) ? opts.stroke : 0,
+    frequency: isFiniteNumber(opts.frequency) ? opts.frequency : 0,
+    servo_torque_limit: servoLimit,
+    ball_joint_limit_deg: isFiniteNumber(opts.ballJointLimitDeg) ? opts.ballJointLimitDeg : 90,
+    ball_joint_clamp: Boolean(opts.ballJointClamp)
+  };
+}
+
+function prepareRangesForWasm(ranges) {
+  if (!ranges || typeof ranges !== 'object') {
+    return {};
+  }
+  const prepared = {};
+  for (const [axis, spec] of Object.entries(ranges)) {
+    if (!spec || typeof spec !== 'object') {
+      continue;
+    }
+    const { min = 0, max = 0, step = 0 } = spec;
+    prepared[axis] = {
+      min: toFiniteNumber(min, 0),
+      max: toFiniteNumber(max, 0),
+      step: toFiniteNumber(step, 0)
+    };
+  }
+  return prepared;
+}
+
+function preparePlatformForWasm(platform) {
+  const issues = { missing: [], invalid: [] };
+  if (!platform || typeof platform !== 'object') {
+    issues.missing.push('platform object');
+    preparePlatformForWasm.lastErrors = issues;
+    return null;
+  }
+
+  const requiredMethods = [
+    { key: 'update', label: 'update() method' },
+    { key: 'computeAngles', label: 'computeAngles() method' }
+  ];
+  for (const { key, label } of requiredMethods) {
+    if (typeof platform[key] !== 'function') {
+      issues.missing.push(label);
+    }
+  }
+
+  const sanitized = {};
+  let legCount = null;
+
+  const sanitizeVectorField = (key, label) => {
+    const value = platform[key];
+    if (!Array.isArray(value)) {
+      issues.missing.push(label);
+      return null;
+    }
+    if (!value.length) {
+      issues.invalid.push(`${label} is empty`);
+      return null;
+    }
+    if (legCount === null) {
+      legCount = value.length;
+    } else if (value.length !== legCount) {
+      issues.invalid.push(`${label} length ${value.length} (expected ${legCount})`);
+    }
+    const sanitizedVectors = [];
+    value.forEach((vec, index) => {
+      if (!Array.isArray(vec) || vec.length < 3) {
+        issues.invalid.push(`${label}[${index}] not a 3-vector`);
+        return;
+      }
+      const coords = vec.slice(0, 3).map(num => Number(num));
+      if (coords.some(n => !Number.isFinite(n))) {
+        issues.invalid.push(`${label}[${index}] contains non-numeric values`);
+        return;
+      }
+      sanitizedVectors.push(coords);
+    });
+    return sanitizedVectors.length === value.length ? sanitizedVectors : null;
+  };
+
+  const bPoints = sanitizeVectorField('B', 'B (base joint positions)');
+  const hPoints = sanitizeVectorField('H', 'H (servo horn positions)');
+  const pPoints = sanitizeVectorField('P', 'P (platform joint positions)');
+  if (bPoints) sanitized.B = bPoints;
+  if (hPoints) sanitized.H = hPoints;
+  if (pPoints) sanitized.P = pPoints;
+
+  const sanitizeNumericArray = (key, label) => {
+    const value = platform[key];
+    if (!Array.isArray(value)) {
+      issues.missing.push(label);
+      return null;
+    }
+    if (legCount !== null && value.length !== legCount) {
+      issues.invalid.push(`${label} length ${value.length} (expected ${legCount})`);
+    }
+    const sanitizedArray = value.map(num => Number(num));
+    if (sanitizedArray.some(n => !Number.isFinite(n))) {
+      issues.invalid.push(`${label} contains non-numeric values`);
+      return null;
+    }
+    return sanitizedArray;
+  };
+
+  const cosBeta = sanitizeNumericArray('cosBeta', 'cosBeta');
+  const sinBeta = sanitizeNumericArray('sinBeta', 'sinBeta');
+  if (cosBeta) sanitized.cosBeta = cosBeta;
+  if (sinBeta) sanitized.sinBeta = sinBeta;
+
+  if (platform.hornLength !== undefined) {
+    if (!isFiniteNumber(platform.hornLength)) {
+      issues.invalid.push('hornLength (expected finite number)');
+    } else {
+      sanitized.hornLength = Number(platform.hornLength);
+    }
+  }
+
+  if (platform.servoRange !== undefined && platform.servoRange !== null) {
+    if (!Array.isArray(platform.servoRange) || platform.servoRange.length < 2) {
+      issues.invalid.push('servoRange (expected [min, max])');
+    } else {
+      const range = platform.servoRange.slice(0, 2).map(num => Number(num));
+      if (range.some(n => !Number.isFinite(n))) {
+        issues.invalid.push('servoRange contains non-numeric values');
+      } else if (range[0] > range[1]) {
+        issues.invalid.push('servoRange min greater than max');
+      } else {
+        sanitized.servoRange = range;
+      }
+    }
+  }
+
+  sanitized.translation = Array.isArray(platform.translation) && platform.translation.length >= 3
+    ? platform.translation.slice(0, 3).map(value => toFiniteNumber(value, 0))
+    : [0, 0, 0];
+
+  sanitized.orientation = extractQuaternionComponents(platform.orientation);
+
+  const hasIssues = issues.missing.length > 0 || issues.invalid.length > 0;
+  preparePlatformForWasm.lastErrors = hasIssues ? issues : null;
+  return hasIssues ? null : sanitized;
+}
+
+preparePlatformForWasm.lastErrors = null;
+
+function formatWasmPlatformIssues(detail) {
+  if (!detail) {
+    return '';
+  }
+  const parts = [];
+  if (detail.missing && detail.missing.length) {
+    parts.push(`missing fields: ${detail.missing.join(', ')}`);
+  }
+  if (detail.invalid && detail.invalid.length) {
+    parts.push(`invalid entries: ${detail.invalid.join(', ')}`);
+  }
+  return parts.length ? ` (${parts.join('; ')})` : '';
+}
+
+function extractQuaternionComponents(q) {
+  if (!q) {
+    return [0, 0, 0, 1];
+  }
+  if (typeof q.toArray === 'function') {
+    const arr = q.toArray();
+    if (Array.isArray(arr) && arr.length === 4) {
+      const nums = arr.map(num => Number(num));
+      if (nums.every(val => Number.isFinite(val))) {
+        return nums;
+      }
+    }
+  }
+  if (Array.isArray(q) && q.length === 4) {
+    const arr = q.map(num => Number(num));
+    if (arr.every(val => Number.isFinite(val))) {
+      return arr;
+    }
+  }
+  if (typeof q === 'object') {
+    const keys = ['x', 'y', 'z', 'w'];
+    if (keys.every(key => isFiniteNumber(q[key]))) {
+      return [q.x, q.y, q.z, q.w];
+    }
+    const alt = ['w', 'x', 'y', 'z'];
+    if (alt.every(key => isFiniteNumber(q[key]))) {
+      return [q.x, q.y, q.z, q.w];
+    }
+  }
+  return [0, 0, 0, 1];
+}
+
+function isFiniteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function toFiniteNumber(value, fallback) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
 }
