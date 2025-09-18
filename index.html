@@ -331,10 +331,19 @@
                     ballJointClamp: ballJointClampCheckbox.checked,
                 });
                 resultOutput.value = '';
-                currentOptimizer.start(() => {
-                    showStatus('Optimization completed (calculation loops currently disabled).');
-                    if (currentOptimizer && currentOptimizer.fitness.length) {
-                        resultOutput.value = JSON.stringify(currentOptimizer.fitness[0].layout, null, 2);
+                currentOptimizer.start((optimizer, info = {}) => {
+                    if (info.error) {
+                        showStatus(`Optimization error: ${info.error.message || info.error}`, true);
+                        return;
+                    }
+                    const generation = info.generation || optimizer?.generation || 0;
+                    if (generation >= optimizer.generations) {
+                        showStatus('Optimization completed (placeholder evolutionary loop).');
+                    } else {
+                        showStatus(`Evaluated generation ${generation} of ${optimizer.generations}...`);
+                    }
+                    if (optimizer && optimizer.fitness && optimizer.fitness.length) {
+                        resultOutput.value = JSON.stringify(optimizer.fitness[0].layout, null, 2);
                     }
                 });
             } catch (error) {
