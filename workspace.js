@@ -147,6 +147,7 @@ export async function computeWorkspace(platform, ranges = {}, options = {}) {
   //             if (processed % 200 === 0) {
   //               await new Promise((resolve) => setTimeout(resolve, 0));
   //             }
+  //             // Expensive kinematics evaluation lived here.
   //           }
   //         }
   //       }
