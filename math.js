@@ -206,6 +206,21 @@ export function sum(values) {
   return values.reduce((acc, v) => acc + v, 0);
 }
 
+export function variance(values) {
+  if (!values.length) return 0;
+  const mean = average(values);
+  const squared = values.map((value) => {
+    const diff = value - mean;
+    return diff * diff;
+  });
+  return average(squared);
+}
+
+export function standardDeviation(values) {
+  if (!values.length) return 0;
+  return Math.sqrt(variance(values));
+}
+
 export function squaredDistance(a, b) {
   const dx = a[0] - b[0];
   const dy = a[1] - b[1];

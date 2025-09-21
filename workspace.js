@@ -10,6 +10,9 @@ import {
   vectorCross,
   vectorDot,
   clamp,
+  singularValues,
+  average,
+  standardDeviation,
 } from './math.js';
 
 const EPS = 1e-8;
@@ -83,6 +86,7 @@ export function evaluatePose(layout, pose, options = {}) {
   const hornTips = recordLegData ? [] : null;
   const rodVectors = recordLegData ? [] : null;
   const platformPoints = recordLegData ? [] : null;
+  const ballJointAngles = [];
   const violations = [];
 
   let reachable = true;
@@ -147,6 +151,7 @@ export function evaluatePose(layout, pose, options = {}) {
     }
     const rodDirection = vectorNormalize(rodVector);
     const jointAngle = Math.acos(clamp(vectorDot(servoAxis, rodDirection), -1, 1));
+    ballJointAngles.push(jointAngle);
 
     if (jointAngle > ballJointLimitRad + 1e-6) {
       violations.push({ type: 'ballJoint', leg: i, value: jointAngle, limit: ballJointLimitRad });
@@ -179,6 +184,7 @@ export function evaluatePose(layout, pose, options = {}) {
     platformPoints,
     translation: translated,
     rotationMatrix,
+    ballJointAngles,
   };
 }
 
@@ -190,6 +196,8 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
     payload = 0,
     stroke = 0,
     frequency = 0,
+    sampleLimit = 60,
+    violationSampleLimit = 120,
   } = options;
 
   const xs = buildRange(ranges.x, 0);
@@ -200,20 +208,72 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
   const rzs = buildRange(toRadiansRange(ranges.rz), 0);
 
   const totalPoses = xs.length * ys.length * zs.length * rxs.length * rys.length * rzs.length;
-  const reachable = [];
-  const unreachable = [];
-  const violations = [];
+  const violationCounts = {};
+  const isotropySamples = [];
+  const stiffnessSamples = [];
+  const loadShareSamples = [];
+  const ballJointSamples = [];
+  const servoRanges = Array.from({ length: 6 }, () => ({ min: Infinity, max: -Infinity }));
+  const ballJointMax = new Array(6).fill(0);
+  const normalizedSampleLimit = Math.max(0, Math.floor(sampleLimit));
+  const normalizedViolationSampleLimit = Math.max(0, Math.floor(violationSampleLimit));
+  const reachableSummary = { count: 0, samples: [] };
+  const unreachableSummary = { count: 0, samples: [] };
+  const violationSamples = [];
+
+  function recordViolations(pose, entries) {
+    if (!Array.isArray(entries) || !entries.length) {
+      return;
+    }
+    if (violationSamples.length < normalizedViolationSampleLimit) {
+      violationSamples.push({
+        pose,
+        violations: entries.map((violation) => ({
+          type: violation.type,
+          leg: violation.leg,
+          value: violation.value,
+          limit: violation.limit,
+          target: violation.target,
+        })),
+      });
+    }
+    for (const violation of entries) {
+      violationCounts[violation.type] = (violationCounts[violation.type] || 0) + 1;
+    }
+  }
 
   if (totalPoses === 0) {
+    const emptyViolations = { counts: {}, samples: [], total: 0 };
     return {
       coverage: 0,
       total: 0,
-      reachable: [],
-      unreachable: [],
-      violations: [],
+      reachable: reachableSummary,
+      unreachable: unreachableSummary,
+      violations: emptyViolations,
       payload,
       stroke,
       frequency,
+      stats: {
+        reachableCount: 0,
+        averageIsotropy: 0,
+        averageStiffness: 0,
+        loadBalanceScore: 0,
+        servoUsage: new Array(6).fill(0),
+        servoUsageAvg: 0,
+        servoUsagePeak: 0,
+        ballJointMax: new Array(6).fill(0),
+        ballJointOverallMax: 0,
+        ballJointAverage: 0,
+        violationCounts: {},
+        violationRate: 0,
+      },
+      summary: {
+        total: 0,
+        coverage: 0,
+        reachable: reachableSummary,
+        unreachable: unreachableSummary,
+        violations: emptyViolations,
+      },
     };
   }
 
@@ -230,16 +290,80 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
                 ballJointLimitDeg,
                 ballJointClamp,
                 servoRangeRad: layout.servoRangeRad,
+                recordLegData: true,
               });
-              const poseRecord = { pose, result };
               if (result.reachable) {
-                reachable.push(poseRecord);
                 reachableCount += 1;
-              } else {
-                unreachable.push(poseRecord);
-                if (result.violations.length) {
-                  violations.push({ pose, violations: result.violations });
+                reachableSummary.count += 1;
+                if (reachableSummary.samples.length < normalizedSampleLimit) {
+                  reachableSummary.samples.push({
+                    pose,
+                    servoAngles: Array.isArray(result.servoAngles)
+                      ? result.servoAngles.slice()
+                      : undefined,
+                    ballJointAngles: Array.isArray(result.ballJointAngles)
+                      ? result.ballJointAngles.slice()
+                      : undefined,
+                  });
                 }
+
+                if (result.jacobianRows.length === 6) {
+                  const sv = singularValues(result.jacobianRows);
+                  if (sv.length) {
+                    const sigmaMax = Math.max(...sv);
+                    const sigmaMin = Math.min(...sv);
+                    if (Number.isFinite(sigmaMax) && Number.isFinite(sigmaMin) && sigmaMax > EPS && sigmaMin > EPS) {
+                      isotropySamples.push(sigmaMin / sigmaMax);
+                      stiffnessSamples.push(sigmaMin);
+                    }
+                  }
+                }
+
+                if (result.legDirections.length === 6) {
+                  const shares = result.legDirections.map((dir) => Math.abs(dir[2]));
+                  const sumShares = shares.reduce((acc, value) => acc + value, 0) || 1;
+                  const normalized = shares.map((value) => value / sumShares);
+                  const loadStd = standardDeviation(normalized);
+                  const loadScore = 1 / (1 + loadStd);
+                  loadShareSamples.push(loadScore);
+                }
+
+                if (Array.isArray(result.servoAngles)) {
+                  for (let iLeg = 0; iLeg < Math.min(6, result.servoAngles.length); iLeg++) {
+                    const angle = result.servoAngles[iLeg];
+                    const servo = servoRanges[iLeg];
+                    if (angle < servo.min) servo.min = angle;
+                    if (angle > servo.max) servo.max = angle;
+                  }
+                }
+
+                if (Array.isArray(result.ballJointAngles)) {
+                  const maxAngle = Math.max(...result.ballJointAngles.map((value) => (Number.isFinite(value) ? value : 0)), 0);
+                  ballJointSamples.push(maxAngle);
+                  for (let iLeg = 0; iLeg < Math.min(6, result.ballJointAngles.length); iLeg++) {
+                    const angle = result.ballJointAngles[iLeg];
+                    if (Number.isFinite(angle) && angle > ballJointMax[iLeg]) {
+                      ballJointMax[iLeg] = angle;
+                    }
+                  }
+                }
+
+                recordViolations(pose, result.violations);
+              } else {
+                unreachableSummary.count += 1;
+                if (unreachableSummary.samples.length < normalizedSampleLimit) {
+                  unreachableSummary.samples.push({
+                    pose,
+                    violations: result.violations.map((violation) => ({
+                      type: violation.type,
+                      leg: violation.leg,
+                      value: violation.value,
+                      limit: violation.limit,
+                      target: violation.target,
+                    })),
+                  });
+                }
+                recordViolations(pose, result.violations);
               }
             }
           }
@@ -250,14 +374,53 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
 
   const coverage = (reachableCount / totalPoses) * 100;
 
+  const servoUsage = servoRanges.map((range) => {
+    if (range.min === Infinity || range.max === -Infinity) return 0;
+    return range.max - range.min;
+  });
+  const servoUsageAvg = average(servoUsage);
+  const servoUsagePeak = Math.max(0, ...servoUsage);
+
+  const violationTotal = Object.values(violationCounts).reduce((acc, value) => acc + value, 0);
+  const violationRate = totalPoses > 0 ? Math.min(violationTotal / totalPoses, 1) : 0;
+
+  const stats = {
+    reachableCount,
+    averageIsotropy: average(isotropySamples),
+    averageStiffness: average(stiffnessSamples),
+    loadBalanceScore: average(loadShareSamples),
+    servoUsage,
+    servoUsageAvg,
+    servoUsagePeak,
+    ballJointMax,
+    ballJointOverallMax: Math.max(0, ...ballJointMax),
+    ballJointAverage: average(ballJointSamples),
+    violationCounts,
+    violationRate,
+  };
+
+  const violationsSummary = {
+    counts: violationCounts,
+    samples: violationSamples,
+    total: violationTotal,
+  };
+
   return {
     coverage,
     total: totalPoses,
-    reachable,
-    unreachable,
-    violations,
+    reachable: reachableSummary,
+    unreachable: unreachableSummary,
+    violations: violationsSummary,
     payload,
     stroke,
     frequency,
+    stats,
+    summary: {
+      total: totalPoses,
+      coverage,
+      reachable: reachableSummary,
+      unreachable: unreachableSummary,
+      violations: violationsSummary,
+    },
   };
 }
