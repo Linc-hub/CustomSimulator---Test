@@ -54,7 +54,13 @@ function layoutToJSON(layout, metrics = {}) {
       dexterity: metrics.dexterity ?? null,
       stiffness: metrics.stiffness ?? null,
       torque: metrics.torque ?? null,
+      speed_demand: metrics.speedDemand ?? null,
+      load_balance: metrics.loadBalance ?? null,
+      isotropy: metrics.isotropy ?? null,
+      limit_margin: metrics.limitMargin ?? null,
+      fatigue: metrics.fatigue ?? null,
     },
+    workspace_stats: metrics.workspace?.stats ?? null,
   };
 }
 
@@ -231,6 +237,7 @@ export class Optimizer {
     });
 
     const coverage = Number.isFinite(workspaceResult.coverage) ? workspaceResult.coverage : 0;
+    const stats = workspaceResult.stats || {};
 
     const homeResult = evaluatePose(layout, {
       x: 0,
@@ -261,15 +268,41 @@ export class Optimizer {
     }
 
     const torque = this.computeTorque(layout);
-    const objectives = [coverage, dexterity, stiffness, -torque];
+    const speedDemand = this.computeSpeedDemand(stats);
+    const loadBalance = stats.loadBalanceScore ?? 0;
+    const isotropy = stats.averageIsotropy ?? 0;
+    const stiffnessScore = stats.averageStiffness > 0 ? stats.averageStiffness : stiffness;
+    const ballLimit = degToRad(this.ballJointLimitDeg || 0);
+    const ballMarginRaw = ballLimit > 0 && Number.isFinite(stats.ballJointOverallMax)
+      ? 1 - stats.ballJointOverallMax / ballLimit
+      : 1;
+    const violationMargin = 1 - (stats.violationRate ?? 0);
+    const limitMargin = clamp(Math.max(ballMarginRaw, 0) * Math.max(violationMargin, 0), 0, 1);
+    const fatigue = this.computeFatigue(stats);
+    const objectives = [
+      coverage,
+      dexterity,
+      stiffnessScore,
+      loadBalance,
+      isotropy,
+      limitMargin,
+      -torque,
+      -speedDemand,
+      -fatigue,
+    ];
 
     return {
       layout,
       workspace: workspaceResult,
       coverage,
       dexterity,
-      stiffness,
+      stiffness: stiffnessScore,
       torque,
+      speedDemand,
+      loadBalance,
+      isotropy,
+      limitMargin,
+      fatigue,
       condition,
       objectives,
       homePose: homeResult,
@@ -280,10 +313,33 @@ export class Optimizer {
 
   computeTorque(layout) {
     if (!this.payload || layout.hornLength <= 0) return 0;
-    const accel = Math.pow(2 * Math.PI * this.frequency, 2) * (this.stroke / 1000);
-    const force = (this.payload * (9.81 + accel)) / 6;
+    const amplitudeMeters = (this.stroke / 2) / 1000;
+    const accel = Math.pow(2 * Math.PI * this.frequency, 2) * amplitudeMeters;
+    const dynamicForce = this.payload * accel;
+    const staticForce = this.payload * 9.81;
+    const totalForce = dynamicForce + staticForce;
     const hornLengthMeters = layout.hornLength / 1000;
-    return force * hornLengthMeters;
+    return (totalForce * hornLengthMeters) / 6;
+  }
+
+  computeSpeedDemand(stats) {
+    if (!stats || !Number.isFinite(stats.servoUsagePeak)) {
+      return 0;
+    }
+    const servoAmplitude = stats.servoUsagePeak / 2;
+    return servoAmplitude * 2 * Math.PI * this.frequency;
+  }
+
+  computeFatigue(stats) {
+    if (!stats) return 0;
+    const ballJointAvg = Number.isFinite(stats.ballJointAverage) ? stats.ballJointAverage : 0;
+    const servoAvg = Number.isFinite(stats.servoUsageAvg) ? stats.servoUsageAvg : 0;
+    const ballLimit = degToRad(this.ballJointLimitDeg || 0);
+    const ballRatio = ballLimit > 0 ? ballJointAvg / ballLimit : 0;
+    const servoSpan = Math.abs(this.servoRangeRad[1] - this.servoRangeRad[0]) || Math.PI;
+    const servoDuty = servoSpan > 0 ? servoAvg / servoSpan : 0;
+    const strokeMeters = this.stroke / 1000;
+    return (Math.max(ballRatio, 0) + Math.max(servoDuty, 0)) * this.frequency * strokeMeters;
   }
 
   dominates(a, b) {

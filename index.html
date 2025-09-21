@@ -295,6 +295,11 @@
                     dexterity: evaluation.dexterity,
                     stiffness: evaluation.stiffness,
                     torque: evaluation.torque,
+                    speedDemand: evaluation.speedDemand,
+                    loadBalance: evaluation.loadBalance,
+                    isotropy: evaluation.isotropy,
+                    limitMargin: evaluation.limitMargin,
+                    fatigue: evaluation.fatigue,
                 },
                 layout: {
                     base_anchors: evaluation.layout.baseAnchors,
@@ -305,6 +310,7 @@
                     servo_range: evaluation.layout.servoRangeRad.map((rad) => rad * 180 / Math.PI),
                     home_height: evaluation.layout.homeHeight,
                 },
+                workspace_stats: evaluation.workspace?.stats,
             }, null, 2);
         }
 
