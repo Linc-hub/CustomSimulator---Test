@@ -158,15 +158,13 @@
 <body>
     <main>
         <section>
-            <h1>Layout Definition</h1>
-            <p>Paste or load the Stewart platform layout that should be optimized. The layout must match the schema from the
-                original project (base and platform anchor matrices, horn and rod lengths, and servo range).</p>
+            <h1>Requirements</h1>
+            <p>Provide the Stewart platform requirements document following <code>Stewart_Requirements_Schema_v2.json</code>. The optimizer will generate candidate layouts automatically.</p>
             <div class="button-row">
-                <button id="loadAyvaLayout">Load AYVA Reference</button>
-                <button id="loadCircularLayout">Load Circular Layout</button>
-                <button id="clearLayout">Clear</button>
+                <button id="loadSampleRequirements">Load Sample Requirements</button>
+                <button id="clearRequirements">Clear</button>
             </div>
-            <textarea id="layoutInput" spellcheck="false" aria-label="Layout JSON"></textarea>
+            <textarea id="requirementsInput" spellcheck="false" aria-label="Requirements JSON"></textarea>
         </section>
 
         <section>
@@ -174,33 +172,34 @@
             <div class="grid">
                 <label>
                     <span>Generations</span>
-                    <input type="number" id="optGenerations" value="10" min="1">
+                    <input type="number" id="optGenerations" value="25" min="1">
                 </label>
                 <label>
                     <span>Population Size</span>
-                    <input type="number" id="optPopulation" value="20" min="1">
+                    <input type="number" id="optPopulation" value="40" min="4">
                 </label>
             </div>
-            <h2>Search Ranges</h2>
+            <h2>Workspace Sweep Ranges</h2>
+            <p>These ranges are prefilled from the requirements but can be adjusted before execution.</p>
             <div class="range-grid">
-                <label><span>X Min</span><input type="number" id="optXMin" value="-50"></label>
-                <label><span>X Max</span><input type="number" id="optXMax" value="50"></label>
-                <label><span>X Step</span><input type="number" id="optXStep" value="5"></label>
-                <label><span>Y Min</span><input type="number" id="optYMin" value="-50"></label>
-                <label><span>Y Max</span><input type="number" id="optYMax" value="50"></label>
-                <label><span>Y Step</span><input type="number" id="optYStep" value="5"></label>
-                <label><span>Z Min</span><input type="number" id="optZMin" value="-20"></label>
-                <label><span>Z Max</span><input type="number" id="optZMax" value="20"></label>
-                <label><span>Z Step</span><input type="number" id="optZStep" value="5"></label>
-                <label><span>Rx Min</span><input type="number" id="optRxMin" value="-10"></label>
-                <label><span>Rx Max</span><input type="number" id="optRxMax" value="10"></label>
-                <label><span>Rx Step</span><input type="number" id="optRxStep" value="5"></label>
-                <label><span>Ry Min</span><input type="number" id="optRyMin" value="-10"></label>
-                <label><span>Ry Max</span><input type="number" id="optRyMax" value="10"></label>
-                <label><span>Ry Step</span><input type="number" id="optRyStep" value="5"></label>
-                <label><span>Rz Min</span><input type="number" id="optRzMin" value="-10"></label>
-                <label><span>Rz Max</span><input type="number" id="optRzMax" value="10"></label>
-                <label><span>Rz Step</span><input type="number" id="optRzStep" value="5"></label>
+                <label><span>X Min</span><input type="number" id="optXMin"></label>
+                <label><span>X Max</span><input type="number" id="optXMax"></label>
+                <label><span>X Step</span><input type="number" id="optXStep"></label>
+                <label><span>Y Min</span><input type="number" id="optYMin"></label>
+                <label><span>Y Max</span><input type="number" id="optYMax"></label>
+                <label><span>Y Step</span><input type="number" id="optYStep"></label>
+                <label><span>Z Min</span><input type="number" id="optZMin"></label>
+                <label><span>Z Max</span><input type="number" id="optZMax"></label>
+                <label><span>Z Step</span><input type="number" id="optZStep"></label>
+                <label><span>Rx Min</span><input type="number" id="optRxMin"></label>
+                <label><span>Rx Max</span><input type="number" id="optRxMax"></label>
+                <label><span>Rx Step</span><input type="number" id="optRxStep"></label>
+                <label><span>Ry Min</span><input type="number" id="optRyMin"></label>
+                <label><span>Ry Max</span><input type="number" id="optRyMax"></label>
+                <label><span>Ry Step</span><input type="number" id="optRyStep"></label>
+                <label><span>Rz Min</span><input type="number" id="optRzMin"></label>
+                <label><span>Rz Max</span><input type="number" id="optRzMax"></label>
+                <label><span>Rz Step</span><input type="number" id="optRzStep"></label>
             </div>
             <h2>Safety</h2>
             <div class="grid">
@@ -226,130 +225,153 @@
         </section>
     </main>
 
-    <script src="Raw Information/Stuff from Old Project/p5.min.js"></script>
-    <script src="Raw Information/Stuff from Old Project/quaternion.min.js"></script>
-    <script src="Raw Information/Stuff from Old Project/stewart.min.js"></script>
     <script type="module">
-        const layoutInput = document.getElementById('layoutInput');
+        import { parseRequirements, loadDefaultRequirements } from './requirements.js';
+        import { Optimizer } from './optimizer.js';
+
+        const requirementsInput = document.getElementById('requirementsInput');
         const statusEl = document.getElementById('optStatus');
         const resultOutput = document.getElementById('resultOutput');
         const ballJointClampCheckbox = document.getElementById('ballJointClamp');
         const ballJointLimitInput = document.getElementById('ballJointLimit');
-        let platform = null;
         let currentOptimizer = null;
-        let optimizerModule = null;
-
-        async function ensureOptimizer() {
-            if (!optimizerModule) {
-                optimizerModule = await import('./optimizer.js');
-            }
-            return optimizerModule;
-        }
+        let lastWorkspaceDefaults = null;
 
         function showStatus(message, isError = false) {
             statusEl.textContent = message;
             statusEl.classList.toggle('error', isError);
         }
 
-        function parseLayoutFromInput() {
-            const text = layoutInput.value.trim();
-            if (!text) {
-                throw new Error('Layout JSON is empty.');
+        function populateWorkspaceInputs(workspace) {
+            const mappings = [
+                ['X', workspace.x],
+                ['Y', workspace.y],
+                ['Z', workspace.z],
+                ['Rx', workspace.rx],
+                ['Ry', workspace.ry],
+                ['Rz', workspace.rz],
+            ];
+            for (const [prefix, range] of mappings) {
+                document.getElementById(`opt${prefix}Min`).value = range.min;
+                document.getElementById(`opt${prefix}Max`).value = range.max;
+                document.getElementById(`opt${prefix}Step`).value = Number(range.step.toFixed(4));
             }
-            const data = JSON.parse(text);
-            if (!data.base_anchors || !data.platform_anchors) {
-                throw new Error('Layout must include base_anchors and platform_anchors arrays.');
-            }
-            return data;
+            lastWorkspaceDefaults = workspace;
         }
 
-        function applyLayout(layout) {
-            const stewart = new Stewart();
-            if (typeof stewart.initCustom !== 'function') {
-                throw new Error('Stewart library is missing initCustom implementation.');
-            }
-            stewart.initCustom(layout);
-            stewart.layout = layout;
-            platform = stewart;
-            window.platform = stewart;
-            return stewart;
+        function readWorkspaceRanges() {
+            const fallback = lastWorkspaceDefaults || {
+                x: { min: 0, max: 0, step: 1 },
+                y: { min: 0, max: 0, step: 1 },
+                z: { min: 0, max: 0, step: 1 },
+                rx: { min: 0, max: 0, step: 1 },
+                ry: { min: 0, max: 0, step: 1 },
+                rz: { min: 0, max: 0, step: 1 },
+            };
+            const parseValue = (id, fallbackValue) => {
+                const raw = Number(document.getElementById(id).value);
+                return Number.isFinite(raw) ? raw : fallbackValue;
+            };
+            const read = (prefix, defaults) => ({
+                min: parseValue(`opt${prefix}Min`, defaults.min),
+                max: parseValue(`opt${prefix}Max`, defaults.max),
+                step: Math.abs(parseValue(`opt${prefix}Step`, defaults.step)) || defaults.step,
+            });
+            return {
+                x: read('X', fallback.x),
+                y: read('Y', fallback.y),
+                z: read('Z', fallback.z),
+                rx: read('Rx', fallback.rx),
+                ry: read('Ry', fallback.ry),
+                rz: read('Rz', fallback.rz),
+            };
         }
 
-        async function loadLayout(path) {
+        function serializeBest(evaluation) {
+            if (!evaluation) return '';
+            return JSON.stringify({
+                metrics: {
+                    coverage: evaluation.coverage,
+                    dexterity: evaluation.dexterity,
+                    stiffness: evaluation.stiffness,
+                    torque: evaluation.torque,
+                },
+                layout: {
+                    base_anchors: evaluation.layout.baseAnchors,
+                    platform_anchors: evaluation.layout.platformAnchors,
+                    beta_angles: evaluation.layout.betaAngles,
+                    horn_length: evaluation.layout.hornLength,
+                    rod_length: evaluation.layout.rodLength,
+                    servo_range: evaluation.layout.servoRangeRad.map((rad) => rad * 180 / Math.PI),
+                    home_height: evaluation.layout.homeHeight,
+                },
+            }, null, 2);
+        }
+
+        document.getElementById('loadSampleRequirements').addEventListener('click', async () => {
             try {
-                const response = await fetch(path);
-                if (!response.ok) {
-                    throw new Error(`Failed to load ${path}: HTTP ${response.status}`);
-                }
-                const json = await response.json();
-                layoutInput.value = JSON.stringify(json, null, 2);
-                applyLayout(json);
-                showStatus('Layout loaded. Ready to optimize.');
+                const json = await loadDefaultRequirements();
+                requirementsInput.value = json;
+                const { workspace, normalized } = parseRequirements(json);
+                populateWorkspaceInputs(workspace);
+                ballJointLimitInput.value = normalized.ball_joint_max_deg ?? 52;
+                showStatus('Sample requirements loaded.');
             } catch (error) {
                 console.error(error);
                 showStatus(error.message, true);
             }
-        }
-
-        document.getElementById('loadAyvaLayout').addEventListener('click', () => {
-            loadLayout('Raw Information/AYVA_Optimized_Layout.json');
         });
 
-        document.getElementById('loadCircularLayout').addEventListener('click', () => {
-            loadLayout('Raw Information/Circular_Layout.json');
-        });
-
-        document.getElementById('clearLayout').addEventListener('click', () => {
-            layoutInput.value = '';
-            platform = null;
-            window.platform = null;
+        document.getElementById('clearRequirements').addEventListener('click', () => {
+            requirementsInput.value = '';
             resultOutput.value = '';
-            showStatus('Layout cleared.');
+            showStatus('Requirements cleared.');
         });
 
         document.getElementById('runOptimization').addEventListener('click', async () => {
             try {
-                const layout = parseLayoutFromInput();
-                applyLayout(layout);
-                const { Optimizer } = await ensureOptimizer();
+                const text = requirementsInput.value.trim();
+                if (!text) {
+                    throw new Error('Provide requirements JSON before running the optimizer.');
+                }
+                const { normalized, workspace } = parseRequirements(text);
+                populateWorkspaceInputs(workspace);
+                ballJointLimitInput.value = normalized.ball_joint_max_deg ?? ballJointLimitInput.value;
+
                 const generations = Math.max(1, parseInt(document.getElementById('optGenerations').value, 10) || 1);
-                const populationSize = Math.max(1, parseInt(document.getElementById('optPopulation').value, 10) || 1);
-                const ranges = {
-                    x: { min: Number(document.getElementById('optXMin').value), max: Number(document.getElementById('optXMax').value), step: Math.abs(Number(document.getElementById('optXStep').value)) || 1 },
-                    y: { min: Number(document.getElementById('optYMin').value), max: Number(document.getElementById('optYMax').value), step: Math.abs(Number(document.getElementById('optYStep').value)) || 1 },
-                    z: { min: Number(document.getElementById('optZMin').value), max: Number(document.getElementById('optZMax').value), step: Math.abs(Number(document.getElementById('optZStep').value)) || 1 },
-                    rx: { min: Number(document.getElementById('optRxMin').value), max: Number(document.getElementById('optRxMax').value), step: Math.abs(Number(document.getElementById('optRxStep').value)) || 1 },
-                    ry: { min: Number(document.getElementById('optRyMin').value), max: Number(document.getElementById('optRyMax').value), step: Math.abs(Number(document.getElementById('optRyStep').value)) || 1 },
-                    rz: { min: Number(document.getElementById('optRzMin').value), max: Number(document.getElementById('optRzMax').value), step: Math.abs(Number(document.getElementById('optRzStep').value)) || 1 },
-                };
-                showStatus('Starting optimization...');
-                currentOptimizer = new Optimizer(platform, {
+                const populationSize = Math.max(4, parseInt(document.getElementById('optPopulation').value, 10) || 4);
+                const ranges = readWorkspaceRanges();
+
+                currentOptimizer = new Optimizer(normalized, {
                     generations,
                     populationSize,
                     ranges,
-                    ballJointLimitDeg: Number(ballJointLimitInput.value) || 90,
+                    ballJointLimitDeg: Number(ballJointLimitInput.value) || 52,
                     ballJointClamp: ballJointClampCheckbox.checked,
                 });
+
                 resultOutput.value = '';
-                currentOptimizer.start(() => {
-                    showStatus('Optimization completed (calculation loops currently disabled).');
-                    if (currentOptimizer && currentOptimizer.fitness.length) {
-                        resultOutput.value = JSON.stringify(currentOptimizer.fitness[0].layout, null, 2);
-                    }
+                showStatus('Optimization running...');
+                await new Promise((resolve) => {
+                    currentOptimizer.start(() => resolve());
                 });
+
+                const pareto = currentOptimizer.pareto && currentOptimizer.pareto.length ? currentOptimizer.pareto : currentOptimizer.fitness;
+                const best = pareto.slice().sort((a, b) => b.coverage - a.coverage)[0];
+                resultOutput.value = serializeBest(best);
+                showStatus(`Optimization complete. Pareto front contains ${currentOptimizer.pareto.length || pareto.length} layouts.`);
             } catch (error) {
                 console.error(error);
                 showStatus(error.message, true);
             }
         });
 
-        document.getElementById('exportBestLayout').addEventListener('click', async () => {
+        document.getElementById('exportBestLayout').addEventListener('click', () => {
             try {
                 if (!currentOptimizer) {
                     showStatus('Run the optimization before exporting.', true);
                     return;
                 }
-                await ensureOptimizer();
                 currentOptimizer.exportBest();
             } catch (error) {
                 console.error(error);
@@ -357,8 +379,18 @@
             }
         });
 
-        // Load AYVA layout on first visit so the optimizer has data available.
-        loadLayout('Raw Information/AYVA_Optimized_Layout.json');
+        loadDefaultRequirements()
+            .then((json) => {
+                requirementsInput.value = json;
+                const { workspace, normalized } = parseRequirements(json);
+                populateWorkspaceInputs(workspace);
+                ballJointLimitInput.value = normalized.ball_joint_max_deg ?? 52;
+                showStatus('Sample requirements loaded. Adjust parameters and run the optimizer.');
+            })
+            .catch((error) => {
+                console.error(error);
+                showStatus(error.message, true);
+            });
     </script>
 </body>
 </html>
