@@ -196,6 +196,8 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
     payload = 0,
     stroke = 0,
     frequency = 0,
+    sampleLimit = 200,
+    violationSampleLimit = sampleLimit,
   } = options;
 
   const xs = buildRange(ranges.x, 0);
@@ -206,9 +208,11 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
   const rzs = buildRange(toRadiansRange(ranges.rz), 0);
 
   const totalPoses = xs.length * ys.length * zs.length * rxs.length * rys.length * rzs.length;
-  const reachable = [];
-  const unreachable = [];
-  const violations = [];
+  const normalizedSampleLimit = Math.max(0, Math.floor(sampleLimit));
+  const normalizedViolationSampleLimit = Math.max(0, Math.floor(violationSampleLimit));
+  const reachableSamples = [];
+  const unreachableSamples = [];
+  const violationSamples = [];
   const violationCounts = {};
   const isotropySamples = [];
   const stiffnessSamples = [];
@@ -216,6 +220,18 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
   const ballJointSamples = [];
   const servoRanges = Array.from({ length: 6 }, () => ({ min: Infinity, max: -Infinity }));
   const ballJointMax = new Array(6).fill(0);
+
+  const recordSample = (collection, limit, seenCount, sample) => {
+    if (limit <= 0) return;
+    if (collection.length < limit) {
+      collection.push(sample);
+    } else {
+      const replaceIndex = Math.floor(Math.random() * seenCount);
+      if (replaceIndex < limit) {
+        collection[replaceIndex] = sample;
+      }
+    }
+  };
 
   if (totalPoses === 0) {
     return {
@@ -241,10 +257,30 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
         violationCounts: {},
         violationRate: 0,
       },
+      counts: {
+        reachable: 0,
+        unreachable: 0,
+        violationPoses: 0,
+      },
+      samples: {
+        reachable: [],
+        unreachable: [],
+        violations: [],
+        limits: {
+          reachable: normalizedSampleLimit,
+          unreachable: normalizedSampleLimit,
+          violations: normalizedViolationSampleLimit,
+        },
+      },
     };
   }
 
   let reachableCount = 0;
+  let unreachableCount = 0;
+  let violationPoseCount = 0;
+  let reachableSeen = 0;
+  let unreachableSeen = 0;
+  let violationSeen = 0;
 
   for (const x of xs) {
     for (const y of ys) {
@@ -257,12 +293,14 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
                 ballJointLimitDeg,
                 ballJointClamp,
                 servoRangeRad: layout.servoRangeRad,
-                recordLegData: true,
+                recordLegData: false,
               });
-              const poseRecord = { pose, result };
+              const hasViolations = Array.isArray(result.violations) && result.violations.length > 0;
+
               if (result.reachable) {
-                reachable.push(poseRecord);
                 reachableCount += 1;
+                reachableSeen += 1;
+                recordSample(reachableSamples, normalizedSampleLimit, reachableSeen, { pose });
 
                 if (result.jacobianRows.length === 6) {
                   const sv = singularValues(result.jacobianRows);
@@ -304,20 +342,23 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
                     }
                   }
                 }
-
-                if (result.violations.length) {
-                  violations.push({ pose, violations: result.violations });
-                  for (const violation of result.violations) {
-                    violationCounts[violation.type] = (violationCounts[violation.type] || 0) + 1;
-                  }
-                }
               } else {
-                unreachable.push(poseRecord);
-                if (result.violations.length) {
-                  violations.push({ pose, violations: result.violations });
-                  for (const violation of result.violations) {
-                    violationCounts[violation.type] = (violationCounts[violation.type] || 0) + 1;
-                  }
+                unreachableCount += 1;
+                unreachableSeen += 1;
+                recordSample(unreachableSamples, normalizedSampleLimit, unreachableSeen, { pose });
+              }
+
+              if (hasViolations) {
+                violationPoseCount += 1;
+                violationSeen += 1;
+                recordSample(
+                  violationSamples,
+                  normalizedViolationSampleLimit,
+                  violationSeen,
+                  { pose, violations: result.violations.map((violation) => ({ ...violation })) },
+                );
+                for (const violation of result.violations) {
+                  violationCounts[violation.type] = (violationCounts[violation.type] || 0) + 1;
                 }
               }
             }
@@ -357,12 +398,27 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
   return {
     coverage,
     total: totalPoses,
-    reachable,
-    unreachable,
-    violations,
+    reachable: reachableSamples,
+    unreachable: unreachableSamples,
+    violations: violationSamples,
     payload,
     stroke,
     frequency,
     stats,
+    counts: {
+      reachable: reachableCount,
+      unreachable: unreachableCount,
+      violationPoses: violationPoseCount,
+    },
+    samples: {
+      reachable: reachableSamples,
+      unreachable: unreachableSamples,
+      violations: violationSamples,
+      limits: {
+        reachable: normalizedSampleLimit,
+        unreachable: normalizedSampleLimit,
+        violations: normalizedViolationSampleLimit,
+      },
+    },
   };
 }
