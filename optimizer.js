@@ -77,6 +77,9 @@ export class Optimizer {
     designSpace = {},
     ballJointLimitDeg = 52,
     ballJointClamp = true,
+    sampleLimit = 200,
+    violationSampleLimit = sampleLimit,
+    forceFullSweep = false,
   } = {}) {
     this.requirements = requirements;
     this.populationSize = Math.max(4, populationSize);
@@ -85,6 +88,9 @@ export class Optimizer {
     this.mutationRate = clamp(mutationRate, 0, 1);
     this.ballJointLimitDeg = requirements.ball_joint_max_deg ?? ballJointLimitDeg;
     this.ballJointClamp = ballJointClamp;
+    this.sampleLimit = Math.max(0, Math.floor(sampleLimit));
+    this.violationSampleLimit = Math.max(0, Math.floor(violationSampleLimit));
+    this.forceFullSweep = Boolean(forceFullSweep);
     this.payload = requirements.mass_kg ?? 0;
     this.stroke = requirements.cycle_mm ?? 0;
     this.frequency = requirements.frequency_hz ?? 0;
@@ -234,6 +240,9 @@ export class Optimizer {
       frequency: this.frequency,
       ballJointLimitDeg: this.ballJointLimitDeg,
       ballJointClamp: this.ballJointClamp,
+      sampleLimit: this.sampleLimit,
+      violationSampleLimit: this.violationSampleLimit,
+      forceFullSweep: this.forceFullSweep,
     });
 
     const coverage = Number.isFinite(workspaceResult.coverage) ? workspaceResult.coverage : 0;

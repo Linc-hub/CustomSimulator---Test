@@ -14,6 +14,7 @@ import {
   average,
   standardDeviation,
 } from './math.js';
+import { getWorkspaceAccelerator } from './workspace-accel.js';
 
 const EPS = 1e-8;
 
@@ -198,6 +199,7 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
     frequency = 0,
     sampleLimit = 200,
     violationSampleLimit = sampleLimit,
+    forceFullSweep = false,
   } = options;
 
   const xs = buildRange(ranges.x, 0);
@@ -207,9 +209,80 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
   const rys = buildRange(toRadiansRange(ranges.ry), 0);
   const rzs = buildRange(toRadiansRange(ranges.rz), 0);
 
-  const totalPoses = xs.length * ys.length * zs.length * rxs.length * rys.length * rzs.length;
+  const axisArrays = [xs, ys, zs, rxs, rys, rzs];
+  const axisLengths = axisArrays.map((axis) => axis.length);
+  const totalPoses = axisLengths.reduce((acc, len) => acc * len, 1);
+
   const normalizedSampleLimit = Math.max(0, Math.floor(sampleLimit));
   const normalizedViolationSampleLimit = Math.max(0, Math.floor(violationSampleLimit));
+  const evaluationCapRaw = Math.max(normalizedSampleLimit, normalizedViolationSampleLimit);
+  const evaluationCap = evaluationCapRaw > 0 ? evaluationCapRaw : totalPoses;
+  const shouldFullSweep = forceFullSweep || evaluationCap >= totalPoses;
+
+  const emptyResult = (samplingMode = 'empty', target = 0) => ({
+    coverage: 0,
+    total: totalPoses,
+    reachable: [],
+    unreachable: [],
+    violations: [],
+    payload,
+    stroke,
+    frequency,
+    stats: {
+      reachableCount: 0,
+      evaluatedCount: 0,
+      totalPoses,
+      sampleRatio: 0,
+      averageIsotropy: 0,
+      averageStiffness: 0,
+      loadBalanceScore: 0,
+      servoUsage: new Array(6).fill(0),
+      servoUsageAvg: 0,
+      servoUsagePeak: 0,
+      ballJointMax: new Array(6).fill(0),
+      ballJointOverallMax: 0,
+      ballJointAverage: 0,
+      violationCounts: {},
+      violationRate: 0,
+      acceleratedEvaluations: 0,
+    },
+    counts: {
+      reachable: 0,
+      unreachable: 0,
+      violationPoses: 0,
+      sampled: 0,
+      total: totalPoses,
+    },
+    sampling: {
+      mode: samplingMode,
+      evaluated: 0,
+      target,
+      total: totalPoses,
+      acceleratorUsed: 0,
+    },
+    samples: {
+      reachable: [],
+      unreachable: [],
+      violations: [],
+      limits: {
+        reachable: normalizedSampleLimit,
+        unreachable: normalizedSampleLimit,
+        violations: normalizedViolationSampleLimit,
+        evaluations: target,
+      },
+    },
+  });
+
+  if (totalPoses === 0) {
+    return emptyResult('empty', 0);
+  }
+
+  const targetEvaluations = shouldFullSweep ? totalPoses : Math.min(totalPoses, evaluationCap);
+
+  if (targetEvaluations <= 0) {
+    return emptyResult(shouldFullSweep ? 'full' : 'sampled', targetEvaluations);
+  }
+
   const reachableSamples = [];
   const unreachableSamples = [];
   const violationSamples = [];
@@ -233,142 +306,199 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
     }
   };
 
-  if (totalPoses === 0) {
-    return {
-      coverage: 0,
-      total: 0,
-      reachable: [],
-      unreachable: [],
-      violations: [],
-      payload,
-      stroke,
-      frequency,
-      stats: {
-        reachableCount: 0,
-        averageIsotropy: 0,
-        averageStiffness: 0,
-        loadBalanceScore: 0,
-        servoUsage: new Array(6).fill(0),
-        servoUsageAvg: 0,
-        servoUsagePeak: 0,
-        ballJointMax: new Array(6).fill(0),
-        ballJointOverallMax: 0,
-        ballJointAverage: 0,
-        violationCounts: {},
-        violationRate: 0,
-      },
-      counts: {
-        reachable: 0,
-        unreachable: 0,
-        violationPoses: 0,
-      },
-      samples: {
-        reachable: [],
-        unreachable: [],
-        violations: [],
-        limits: {
-          reachable: normalizedSampleLimit,
-          unreachable: normalizedSampleLimit,
-          violations: normalizedViolationSampleLimit,
-        },
-      },
-    };
-  }
-
   let reachableCount = 0;
   let unreachableCount = 0;
   let violationPoseCount = 0;
   let reachableSeen = 0;
   let unreachableSeen = 0;
   let violationSeen = 0;
+  let evaluatedCount = 0;
+  let acceleratedEvaluations = 0;
 
-  for (const x of xs) {
-    for (const y of ys) {
-      for (const z of zs) {
-        for (const rx of rxs) {
-          for (const ry of rys) {
-            for (const rz of rzs) {
-              const pose = { x, y, z, rx, ry, rz };
-              const result = evaluatePose(layout, pose, {
-                ballJointLimitDeg,
-                ballJointClamp,
-                servoRangeRad: layout.servoRangeRad,
-                recordLegData: false,
-              });
-              const hasViolations = Array.isArray(result.violations) && result.violations.length > 0;
+  const accelerator = await getWorkspaceAccelerator();
+  const jacobianBuffer = accelerator ? new Float64Array(36) : null;
 
-              if (result.reachable) {
-                reachableCount += 1;
-                reachableSeen += 1;
-                recordSample(reachableSamples, normalizedSampleLimit, reachableSeen, { pose });
+  const lenX = axisLengths[0];
+  const lenY = axisLengths[1];
+  const lenZ = axisLengths[2];
+  const lenRx = axisLengths[3];
+  const lenRy = axisLengths[4];
+  const lenRz = axisLengths[5];
 
-                if (result.jacobianRows.length === 6) {
-                  const sv = singularValues(result.jacobianRows);
-                  if (sv.length) {
-                    const sigmaMax = Math.max(...sv);
-                    const sigmaMin = Math.min(...sv);
-                    if (Number.isFinite(sigmaMax) && Number.isFinite(sigmaMin) && sigmaMax > EPS && sigmaMin > EPS) {
-                      isotropySamples.push(sigmaMin / sigmaMax);
-                      stiffnessSamples.push(sigmaMin);
-                    }
-                  }
-                }
+  const pose = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
 
-                if (result.legDirections.length === 6) {
-                  const shares = result.legDirections.map((dir) => Math.abs(dir[2]));
-                  const sumShares = shares.reduce((acc, value) => acc + value, 0) || 1;
-                  const normalized = shares.map((value) => value / sumShares);
-                  const loadStd = standardDeviation(normalized);
-                  const loadScore = 1 / (1 + loadStd);
-                  loadShareSamples.push(loadScore);
-                }
+  const assignPoseFromIndex = (index) => {
+    let remainder = index;
+    const idxX = remainder % lenX;
+    remainder = Math.floor(remainder / lenX);
+    const idxY = remainder % lenY;
+    remainder = Math.floor(remainder / lenY);
+    const idxZ = remainder % lenZ;
+    remainder = Math.floor(remainder / lenZ);
+    const idxRx = remainder % lenRx;
+    remainder = Math.floor(remainder / lenRx);
+    const idxRy = remainder % lenRy;
+    remainder = Math.floor(remainder / lenRy);
+    const idxRz = remainder % lenRz;
 
-                if (Array.isArray(result.servoAngles)) {
-                  for (let iLeg = 0; iLeg < Math.min(6, result.servoAngles.length); iLeg++) {
-                    const angle = result.servoAngles[iLeg];
-                    const servo = servoRanges[iLeg];
-                    if (angle < servo.min) servo.min = angle;
-                    if (angle > servo.max) servo.max = angle;
-                  }
-                }
+    pose.x = xs[idxX];
+    pose.y = ys[idxY];
+    pose.z = zs[idxZ];
+    pose.rx = rxs[idxRx];
+    pose.ry = rys[idxRy];
+    pose.rz = rzs[idxRz];
+    return pose;
+  };
 
-                if (Array.isArray(result.ballJointAngles)) {
-                  const maxAngle = Math.max(...result.ballJointAngles.map((value) => (Number.isFinite(value) ? value : 0)), 0);
-                  ballJointSamples.push(maxAngle);
-                  for (let iLeg = 0; iLeg < Math.min(6, result.ballJointAngles.length); iLeg++) {
-                    const angle = result.ballJointAngles[iLeg];
-                    if (Number.isFinite(angle) && angle > ballJointMax[iLeg]) {
-                      ballJointMax[iLeg] = angle;
-                    }
-                  }
-                }
-              } else {
-                unreachableCount += 1;
-                unreachableSeen += 1;
-                recordSample(unreachableSamples, normalizedSampleLimit, unreachableSeen, { pose });
-              }
+  const clonePose = () => ({
+    x: pose.x,
+    y: pose.y,
+    z: pose.z,
+    rx: pose.rx,
+    ry: pose.ry,
+    rz: pose.rz,
+  });
 
-              if (hasViolations) {
-                violationPoseCount += 1;
-                violationSeen += 1;
-                recordSample(
-                  violationSamples,
-                  normalizedViolationSampleLimit,
-                  violationSeen,
-                  { pose, violations: result.violations.map((violation) => ({ ...violation })) },
-                );
-                for (const violation of result.violations) {
-                  violationCounts[violation.type] = (violationCounts[violation.type] || 0) + 1;
-                }
-              }
-            }
-          }
+  const computeSigmaExtents = (rows) => {
+    if (!rows || rows.length !== 6) return null;
+
+    if (accelerator && jacobianBuffer) {
+      let offset = 0;
+      for (let r = 0; r < 6; r++) {
+        const row = rows[r];
+        if (!row || row.length !== 6) {
+          offset = -1;
+          break;
+        }
+        for (let c = 0; c < 6; c++) {
+          jacobianBuffer[offset++] = row[c];
+        }
+      }
+      if (offset === 36) {
+        const estimate = accelerator.estimate(jacobianBuffer);
+        if (estimate && Number.isFinite(estimate.sigmaMax) && Number.isFinite(estimate.sigmaMin)) {
+          acceleratedEvaluations += 1;
+          return estimate;
         }
       }
     }
+
+    const sv = singularValues(rows);
+    if (!sv || !sv.length) return null;
+    let sigmaMax = -Infinity;
+    let sigmaMin = Infinity;
+    for (const value of sv) {
+      if (!Number.isFinite(value)) continue;
+      if (value > sigmaMax) sigmaMax = value;
+      if (value < sigmaMin) sigmaMin = value;
+    }
+    if (!Number.isFinite(sigmaMax) || !Number.isFinite(sigmaMin) || sigmaMax <= EPS || sigmaMin <= 0) {
+      return null;
+    }
+    return { sigmaMin, sigmaMax };
+  };
+
+  const processIndex = (index) => {
+    const currentPose = assignPoseFromIndex(index);
+    const result = evaluatePose(layout, currentPose, {
+      ballJointLimitDeg,
+      ballJointClamp,
+      servoRangeRad: layout.servoRangeRad,
+      recordLegData: false,
+    });
+
+    evaluatedCount += 1;
+
+    const hasViolations = Array.isArray(result.violations) && result.violations.length > 0;
+
+    if (result.reachable) {
+      reachableCount += 1;
+      reachableSeen += 1;
+      recordSample(reachableSamples, normalizedSampleLimit, reachableSeen, { pose: clonePose() });
+
+      const sigma = computeSigmaExtents(result.jacobianRows);
+      if (sigma) {
+        const { sigmaMin, sigmaMax } = sigma;
+        if (sigmaMax > EPS && sigmaMin > EPS) {
+          isotropySamples.push(sigmaMin / sigmaMax);
+          stiffnessSamples.push(sigmaMin);
+        }
+      }
+
+      if (Array.isArray(result.legDirections) && result.legDirections.length === 6) {
+        const shares = result.legDirections.map((dir) => Math.abs(dir[2]));
+        const sumShares = shares.reduce((acc, value) => acc + value, 0) || 1;
+        const normalized = shares.map((value) => value / sumShares);
+        const loadStd = standardDeviation(normalized);
+        const loadScore = 1 / (1 + loadStd);
+        loadShareSamples.push(loadScore);
+      }
+
+      if (Array.isArray(result.servoAngles)) {
+        for (let leg = 0; leg < Math.min(6, result.servoAngles.length); leg++) {
+          const angle = result.servoAngles[leg];
+          const servo = servoRanges[leg];
+          if (angle < servo.min) servo.min = angle;
+          if (angle > servo.max) servo.max = angle;
+        }
+      }
+
+      if (Array.isArray(result.ballJointAngles)) {
+        const maxAngle = Math.max(
+          ...result.ballJointAngles.map((value) => (Number.isFinite(value) ? value : 0)),
+          0,
+        );
+        ballJointSamples.push(maxAngle);
+        for (let leg = 0; leg < Math.min(6, result.ballJointAngles.length); leg++) {
+          const angle = result.ballJointAngles[leg];
+          if (Number.isFinite(angle) && angle > ballJointMax[leg]) {
+            ballJointMax[leg] = angle;
+          }
+        }
+      }
+    } else {
+      unreachableCount += 1;
+      unreachableSeen += 1;
+      recordSample(unreachableSamples, normalizedSampleLimit, unreachableSeen, { pose: clonePose() });
+    }
+
+    if (hasViolations) {
+      violationPoseCount += 1;
+      violationSeen += 1;
+      const violationCopy = result.violations.map((violation) => ({ ...violation }));
+      recordSample(violationSamples, normalizedViolationSampleLimit, violationSeen, {
+        pose: clonePose(),
+        violations: violationCopy,
+      });
+      for (const violation of result.violations) {
+        violationCounts[violation.type] = (violationCounts[violation.type] || 0) + 1;
+      }
+    }
+  };
+
+  if (shouldFullSweep) {
+    for (let index = 0; index < totalPoses; index += 1) {
+      processIndex(index);
+    }
+  } else {
+    const chosen = new Set();
+    const stride = totalPoses / targetEvaluations;
+    for (let i = 0; i < targetEvaluations; i += 1) {
+      let candidate = Math.floor(i * stride + Math.random() * stride);
+      if (candidate >= totalPoses) {
+        candidate = totalPoses - 1;
+      }
+      while (chosen.has(candidate)) {
+        candidate = (candidate + 1) % totalPoses;
+      }
+      chosen.add(candidate);
+    }
+    for (const index of chosen) {
+      processIndex(index);
+    }
   }
 
-  const coverage = (reachableCount / totalPoses) * 100;
+  const coverage = evaluatedCount > 0 ? (reachableCount / evaluatedCount) * 100 : 0;
 
   const servoUsage = servoRanges.map((range) => {
     if (range.min === Infinity || range.max === -Infinity) return 0;
@@ -378,10 +508,13 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
   const servoUsagePeak = Math.max(0, ...servoUsage);
 
   const violationTotal = Object.values(violationCounts).reduce((acc, value) => acc + value, 0);
-  const violationRate = totalPoses > 0 ? Math.min(violationTotal / totalPoses, 1) : 0;
+  const violationRate = evaluatedCount > 0 ? Math.min(violationTotal / evaluatedCount, 1) : 0;
 
   const stats = {
     reachableCount,
+    evaluatedCount,
+    totalPoses,
+    sampleRatio: totalPoses > 0 ? evaluatedCount / totalPoses : 0,
     averageIsotropy: average(isotropySamples),
     averageStiffness: average(stiffnessSamples),
     loadBalanceScore: average(loadShareSamples),
@@ -393,6 +526,7 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
     ballJointAverage: average(ballJointSamples),
     violationCounts,
     violationRate,
+    acceleratedEvaluations,
   };
 
   return {
@@ -409,6 +543,15 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
       reachable: reachableCount,
       unreachable: unreachableCount,
       violationPoses: violationPoseCount,
+      sampled: evaluatedCount,
+      total: totalPoses,
+    },
+    sampling: {
+      mode: shouldFullSweep ? 'full' : 'sampled',
+      evaluated: evaluatedCount,
+      target: targetEvaluations,
+      total: totalPoses,
+      acceleratorUsed: acceleratedEvaluations,
     },
     samples: {
       reachable: reachableSamples,
@@ -418,7 +561,9 @@ export async function computeWorkspace(layout, ranges = {}, options = {}) {
         reachable: normalizedSampleLimit,
         unreachable: normalizedSampleLimit,
         violations: normalizedViolationSampleLimit,
+        evaluations: targetEvaluations,
       },
     },
   };
 }
+
