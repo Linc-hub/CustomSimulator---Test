@@ -69,18 +69,98 @@
             resize: vertical;
         }
 
-        label {
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-title h1,
+        .section-title h2 {
+            flex: 1;
+        }
+
+        .field {
             display: flex;
             flex-direction: column;
             gap: 6px;
             font-size: 14px;
         }
 
-        label span {
+        .field-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .field-header span {
             color: var(--muted);
             font-size: 12px;
             letter-spacing: .3px;
             text-transform: uppercase;
+        }
+
+        .checkbox-field {
+            flex-direction: row;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .checkbox-field .field-header {
+            flex: 1;
+            justify-content: flex-start;
+            gap: 8px;
+        }
+
+        .info-button {
+            appearance: none;
+            border: none;
+            background: transparent;
+            color: var(--accent);
+            font-size: 14px;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background .15s ease, color .15s ease;
+        }
+
+        .info-button:hover,
+        .info-button:focus-visible {
+            background: rgba(77, 171, 247, 0.15);
+            outline: none;
+        }
+
+        .info-button:active {
+            background: rgba(77, 171, 247, 0.25);
+        }
+
+        .info-popup {
+            position: absolute;
+            max-width: 320px;
+            background: #1c1c1c;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px 14px;
+            font-size: 13px;
+            line-height: 1.5;
+            color: var(--text);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(-6px);
+            transition: opacity .12s ease, transform .12s ease;
+        }
+
+        .info-popup.visible {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(0);
         }
 
         input[type="number"],
@@ -130,9 +210,15 @@
             gap: 12px;
         }
 
-        .range-grid {
+        .range-rows {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .axis-row {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
             gap: 12px;
         }
 
@@ -158,58 +244,91 @@
 <body>
     <main>
         <section>
-            <h1>Requirements</h1>
+            <div class="section-title">
+                <h1>Requirements</h1>
+                <button type="button" class="info-button" data-info="Paste or edit your project\'s requirements JSON. The optimizer reads this structured document to derive payload, workspace, and constraint targets.">ⓘ</button>
+            </div>
             <p>Provide the Stewart platform requirements document following <code>Stewart_Requirements_Schema_v2.json</code>. The optimizer will generate candidate layouts automatically.</p>
             <div class="button-row">
                 <button id="loadSampleRequirements">Load Sample Requirements</button>
                 <button id="clearRequirements">Clear</button>
             </div>
-            <textarea id="requirementsInput" spellcheck="false" aria-label="Requirements JSON"></textarea>
+            <label class="field">
+                <div class="field-header">
+                    <span>Requirements JSON</span>
+                    <button type="button" class="info-button" data-info="This JSON document defines the payload, workspace ranges, and actuator limits the optimizer must respect. Adjust it to match your real-world requirements.">ⓘ</button>
+                </div>
+                <textarea id="requirementsInput" spellcheck="false" aria-label="Requirements JSON"></textarea>
+            </label>
         </section>
 
         <section>
-            <h2>Optimization Parameters</h2>
+            <div class="section-title">
+                <h2>Optimization Parameters</h2>
+                <button type="button" class="info-button" data-info="These settings control the genetic algorithm that searches for good layouts. More generations and a larger population improve search depth but take longer to compute.">ⓘ</button>
+            </div>
             <div class="grid">
-                <label>
-                    <span>Generations</span>
+                <label class="field">
+                    <div class="field-header">
+                        <span>Generations</span>
+                        <button type="button" class="info-button" data-info="Number of evolutionary iterations used to refine the population of layouts.">ⓘ</button>
+                    </div>
                     <input type="number" id="optGenerations" value="25" min="1">
                 </label>
-                <label>
-                    <span>Population Size</span>
+                <label class="field">
+                    <div class="field-header">
+                        <span>Population Size</span>
+                        <button type="button" class="info-button" data-info="How many candidate layouts are evaluated in each generation of the optimizer.">ⓘ</button>
+                    </div>
                     <input type="number" id="optPopulation" value="40" min="4">
                 </label>
             </div>
-            <h2>Workspace Sweep Ranges</h2>
+            <div class="section-title">
+                <h2>Workspace Sweep Ranges</h2>
+                <button type="button" class="info-button" data-info="These bounds define the position and orientation grid sampled during workspace evaluation. Adjust them to focus the search on the region you care about.">ⓘ</button>
+            </div>
             <p>These ranges are prefilled from the requirements but can be adjusted before execution.</p>
-            <div class="range-grid">
-                <label><span>X Min</span><input type="number" id="optXMin"></label>
-                <label><span>X Max</span><input type="number" id="optXMax"></label>
-                <label><span>X Step</span><input type="number" id="optXStep"></label>
-                <label><span>Y Min</span><input type="number" id="optYMin"></label>
-                <label><span>Y Max</span><input type="number" id="optYMax"></label>
-                <label><span>Y Step</span><input type="number" id="optYStep"></label>
-                <label><span>Z Min</span><input type="number" id="optZMin"></label>
-                <label><span>Z Max</span><input type="number" id="optZMax"></label>
-                <label><span>Z Step</span><input type="number" id="optZStep"></label>
-                <label><span>Rx Min</span><input type="number" id="optRxMin"></label>
-                <label><span>Rx Max</span><input type="number" id="optRxMax"></label>
-                <label><span>Rx Step</span><input type="number" id="optRxStep"></label>
-                <label><span>Ry Min</span><input type="number" id="optRyMin"></label>
-                <label><span>Ry Max</span><input type="number" id="optRyMax"></label>
-                <label><span>Ry Step</span><input type="number" id="optRyStep"></label>
-                <label><span>Rz Min</span><input type="number" id="optRzMin"></label>
-                <label><span>Rz Max</span><input type="number" id="optRzMax"></label>
-                <label><span>Rz Step</span><input type="number" id="optRzStep"></label>
+            <div class="range-rows">
+                <div class="axis-row">
+                    <label class="field"><div class="field-header"><span>X Max</span><button type="button" class="info-button" data-info="Upper bound of the platform translation along X (millimetres).">ⓘ</button></div><input type="number" id="optXMax"></label>
+                    <label class="field"><div class="field-header"><span>X Min</span><button type="button" class="info-button" data-info="Lower bound of the platform translation along X (millimetres).">ⓘ</button></div><input type="number" id="optXMin"></label>
+                    <label class="field"><div class="field-header"><span>X Step</span><button type="button" class="info-button" data-info="Spacing between X samples in the translation sweep (millimetres).">ⓘ</button></div><input type="number" id="optXStep"></label>
+                    <label class="field"><div class="field-header"><span>Rx Min</span><button type="button" class="info-button" data-info="Lower bound of roll rotation about the X axis (degrees).">ⓘ</button></div><input type="number" id="optRxMin"></label>
+                    <label class="field"><div class="field-header"><span>Rx Max</span><button type="button" class="info-button" data-info="Upper bound of roll rotation about the X axis (degrees).">ⓘ</button></div><input type="number" id="optRxMax"></label>
+                    <label class="field"><div class="field-header"><span>Rx Step</span><button type="button" class="info-button" data-info="Spacing between roll samples in the rotation sweep (degrees).">ⓘ</button></div><input type="number" id="optRxStep"></label>
+                </div>
+                <div class="axis-row">
+                    <label class="field"><div class="field-header"><span>Y Max</span><button type="button" class="info-button" data-info="Upper bound of the platform translation along Y (millimetres).">ⓘ</button></div><input type="number" id="optYMax"></label>
+                    <label class="field"><div class="field-header"><span>Y Min</span><button type="button" class="info-button" data-info="Lower bound of the platform translation along Y (millimetres).">ⓘ</button></div><input type="number" id="optYMin"></label>
+                    <label class="field"><div class="field-header"><span>Y Step</span><button type="button" class="info-button" data-info="Spacing between Y samples in the translation sweep (millimetres).">ⓘ</button></div><input type="number" id="optYStep"></label>
+                    <label class="field"><div class="field-header"><span>Ry Min</span><button type="button" class="info-button" data-info="Lower bound of pitch rotation about the Y axis (degrees).">ⓘ</button></div><input type="number" id="optRyMin"></label>
+                    <label class="field"><div class="field-header"><span>Ry Max</span><button type="button" class="info-button" data-info="Upper bound of pitch rotation about the Y axis (degrees).">ⓘ</button></div><input type="number" id="optRyMax"></label>
+                    <label class="field"><div class="field-header"><span>Ry Step</span><button type="button" class="info-button" data-info="Spacing between pitch samples in the rotation sweep (degrees).">ⓘ</button></div><input type="number" id="optRyStep"></label>
+                </div>
+                <div class="axis-row">
+                    <label class="field"><div class="field-header"><span>Z Max</span><button type="button" class="info-button" data-info="Upper bound of the platform translation along Z (millimetres).">ⓘ</button></div><input type="number" id="optZMax"></label>
+                    <label class="field"><div class="field-header"><span>Z Min</span><button type="button" class="info-button" data-info="Lower bound of the platform translation along Z (millimetres).">ⓘ</button></div><input type="number" id="optZMin"></label>
+                    <label class="field"><div class="field-header"><span>Z Step</span><button type="button" class="info-button" data-info="Spacing between Z samples in the translation sweep (millimetres).">ⓘ</button></div><input type="number" id="optZStep"></label>
+                    <label class="field"><div class="field-header"><span>Rz Min</span><button type="button" class="info-button" data-info="Lower bound of yaw rotation about the Z axis (degrees).">ⓘ</button></div><input type="number" id="optRzMin"></label>
+                    <label class="field"><div class="field-header"><span>Rz Max</span><button type="button" class="info-button" data-info="Upper bound of yaw rotation about the Z axis (degrees).">ⓘ</button></div><input type="number" id="optRzMax"></label>
+                    <label class="field"><div class="field-header"><span>Rz Step</span><button type="button" class="info-button" data-info="Spacing between yaw samples in the rotation sweep (degrees).">ⓘ</button></div><input type="number" id="optRzStep"></label>
+                </div>
             </div>
             <h2>Safety</h2>
             <div class="grid">
-                <label>
-                    <span>Ball Joint Limit (deg)</span>
+                <label class="field">
+                    <div class="field-header">
+                        <span>Ball Joint Limit (deg)</span>
+                        <button type="button" class="info-button" data-info="Maximum allowed angle at each ball joint before a pose counts as violating the limit.">ⓘ</button>
+                    </div>
                     <input type="number" id="ballJointLimit" value="52" min="0" max="180">
                 </label>
-                <label style="flex-direction:row; align-items:center; gap:10px;">
+                <label class="field checkbox-field">
                     <input type="checkbox" id="ballJointClamp" checked>
-                    <span>Clamp ball joints during evaluation</span>
+                    <div class="field-header">
+                        <span>Clamp ball joints during evaluation</span>
+                        <button type="button" class="info-button" data-info="When enabled, poses that exceed the ball joint angle are counted but clamped so the optimizer can still gauge performance. Disable to treat them as unreachable.">ⓘ</button>
+                    </div>
                 </label>
             </div>
         </section>
@@ -234,8 +353,70 @@
         const resultOutput = document.getElementById('resultOutput');
         const ballJointClampCheckbox = document.getElementById('ballJointClamp');
         const ballJointLimitInput = document.getElementById('ballJointLimit');
+        const infoPopup = document.createElement('div');
+        infoPopup.className = 'info-popup';
+        infoPopup.setAttribute('role', 'dialog');
+        infoPopup.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(infoPopup);
+        let activeInfoButton = null;
         let currentOptimizer = null;
         let lastWorkspaceDefaults = null;
+
+        function hideInfoPopup() {
+            if (!infoPopup.classList.contains('visible')) return;
+            infoPopup.classList.remove('visible');
+            infoPopup.setAttribute('aria-hidden', 'true');
+            infoPopup.textContent = '';
+            activeInfoButton = null;
+        }
+
+        function showInfoPopup(button) {
+            const message = button?.dataset?.info;
+            if (!message) return;
+            infoPopup.textContent = message;
+            infoPopup.classList.add('visible');
+            infoPopup.setAttribute('aria-hidden', 'false');
+            const rect = button.getBoundingClientRect();
+            const { innerWidth } = window;
+            const scrollX = window.scrollX || window.pageXOffset;
+            const scrollY = window.scrollY || window.pageYOffset;
+            const popupRect = infoPopup.getBoundingClientRect();
+            const top = scrollY + rect.bottom + 8;
+            let left = scrollX + rect.left + rect.width / 2 - popupRect.width / 2;
+            const minLeft = scrollX + 8;
+            const maxLeft = scrollX + innerWidth - popupRect.width - 8;
+            if (left < minLeft) left = minLeft;
+            if (left > maxLeft) left = Math.max(minLeft, maxLeft);
+            infoPopup.style.top = `${top}px`;
+            infoPopup.style.left = `${left}px`;
+            activeInfoButton = button;
+        }
+
+        document.addEventListener('click', (event) => {
+            const button = event.target.closest('.info-button');
+            if (button) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (activeInfoButton === button && infoPopup.classList.contains('visible')) {
+                    hideInfoPopup();
+                } else {
+                    showInfoPopup(button);
+                }
+                return;
+            }
+            if (!infoPopup.contains(event.target)) {
+                hideInfoPopup();
+            }
+        });
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                hideInfoPopup();
+            }
+        });
+
+        window.addEventListener('scroll', hideInfoPopup, true);
+        window.addEventListener('resize', hideInfoPopup);
 
         function showStatus(message, isError = false) {
             statusEl.textContent = message;
